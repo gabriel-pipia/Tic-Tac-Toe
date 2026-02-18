@@ -1,10 +1,10 @@
-import { ThemedText } from '@/components/Text';
-import { ThemedView } from '@/components/View';
+import { ThemedText } from '@/components/ui/Text';
+import { ThemedView } from '@/components/ui/View';
 import { useAuth } from '@/context/AuthContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Redirect, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator } from 'react-native';
+import { ActivityIndicator, StyleSheet } from 'react-native';
 
 export default function Index() {
   const { session, loading } = useAuth();
@@ -19,9 +19,9 @@ export default function Index() {
 
   if (loading || hasSeenOnboarding === null) {
     return (
-      <ThemedView themed className="flex-1 justify-center items-center">
-        <ActivityIndicator size="large" className="text-primary" />
-        <ThemedText size='lg' weight='bold' colorType='text' className='mt-4'>Loading...</ThemedText>
+      <ThemedView themed style={styles.container}>
+        <ActivityIndicator size="large" color="#7c3aed" />
+        <ThemedText size='lg' weight='bold' colorType='text' style={styles.text}>Loading...</ThemedText>
       </ThemedView>
     );
   }
@@ -37,3 +37,14 @@ export default function Index() {
   // Forward any params (like gameId) to the tabs route
   return <Redirect href={{ pathname: "/(tabs)", params: params as any }} />;
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  text: {
+    marginTop: 16,
+  },
+});

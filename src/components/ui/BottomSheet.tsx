@@ -1,7 +1,7 @@
-import { Layout } from '@/constants/Layout';
 import { useTheme } from '@/context/ThemeContext';
+import { Layout } from '@/lib/constants/Layout';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Dimensions, KeyboardAvoidingView, Modal, Platform, Pressable, useWindowDimensions, View } from 'react-native';
+import { Dimensions, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, {
     Extrapolation,
@@ -146,43 +146,73 @@ export default function BottomSheet({ visible, onClose, children, height = 'auto
                         />
                     </Pressable>
                     
-                    <GestureDetector gesture={gesture}>
-                        <Animated.View 
-                            className="shadow-lg shadow-black/30"
-                            style={[
-                                rBottomSheetStyle,
-                                { 
-                                    backgroundColor: colors.background,
-                                    width: isLargeScreen ? Layout.MAX_CONTENT_WIDTH : '100%',
-                                    borderRadius: isLargeScreen ? 32 : 0,
-                                    borderTopLeftRadius: 32,
-                                    borderTopRightRadius: 32,
-                                    overflow: 'hidden',
-                                    paddingBottom: isLargeScreen ? 12 : 32,
-                                },
-                                height !== 'auto' ? { height: height as any } : { maxHeight: '90%' }
-                            ]}
-                        >
-                            {/* Handle / Header */}
-                            <View className="w-full items-center justify-center pt-4 pb-0">
-                                
-                                {!isLargeScreen && (
-                                    <View 
-                                        className="w-[40px] h-[4px] rounded-full" 
-                                        style={{ backgroundColor: colors.separator }}
-                                    />
-                                )}
-                                
-                            </View>
+                  <GestureDetector gesture={gesture}>
+                      <Animated.View 
+                          style={[
+                              styles.bottomSheet,
+                              styles.shadow,
+                              rBottomSheetStyle,
+                              { 
+                                  backgroundColor: colors.background,
+                                  width: isLargeScreen ? Layout.MAX_CONTENT_WIDTH : '100%',
+                                  borderRadius: isLargeScreen ? 32 : 0,
+                                  borderTopLeftRadius: 32,
+                                  borderTopRightRadius: 32,
+                                  paddingBottom: isLargeScreen ? 12 : 32,
+                              },
+                              height !== 'auto' ? { height: height as any } : { maxHeight: '90%' }
+                          ]}
+                      >
+                          {/* Handle / Header */}
+                          <View style={styles.handleContainer}>
+                              
+                              {!isLargeScreen && (
+                                  <View 
+                                      style={[styles.handle, { backgroundColor: colors.separator }]}
+                                  />
+                              )}
+                              
+                          </View>
 
-                            <View className="w-full" onStartShouldSetResponder={() => true}>
-                                {children}
-                            </View>
-                        </Animated.View>
-                    </GestureDetector>
+                          <View style={styles.contentContainer} onStartShouldSetResponder={() => true}>
+                              {children}
+                          </View>
+                      </Animated.View>
+                  </GestureDetector>
                 </View>
             </KeyboardAvoidingView>
         </GestureHandlerRootView>
     </Modal>
   );
 }
+
+const styles = StyleSheet.create({
+    bottomSheet: {
+        overflow: 'hidden',
+    },
+    shadow: {
+        shadowColor: "#000",
+        shadowOffset: {
+            width: 0,
+            height: 10,
+        },
+        shadowOpacity: 0.3,
+        shadowRadius: 20,
+        elevation: 10,
+    },
+    handleContainer: {
+        width: '100%',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingTop: 16,
+        paddingBottom: 0,
+    },
+    handle: {
+        width: 40,
+        height: 4,
+        borderRadius: 9999,
+    },
+    contentContainer: {
+        width: '100%',
+    }
+});

@@ -1,19 +1,20 @@
-import BottomSheet from '@/components/BottomSheet';
-import Button from '@/components/Button';
-import Input from '@/components/Input';
-import { ThemedText } from '@/components/Text';
-import { ThemedView } from '@/components/View';
-import { Layout } from '@/constants/Layout';
+import BottomSheet from '@/components/ui/BottomSheet';
+import Button from '@/components/ui/Button';
+import Input from '@/components/ui/Input';
+import SheetHeader from '@/components/ui/SheetHeader';
+import { ThemedText } from '@/components/ui/Text';
+import { ThemedView } from '@/components/ui/View';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useUI } from '@/context/UIContext';
-import { supabase } from '@/utils/supabase';
+import { Layout } from '@/lib/constants/Layout';
+import { supabase } from '@/lib/supabase/client';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Clipboard from 'expo-clipboard';
 import { useNavigation, useRouter } from 'expo-router';
-import { ChevronLeft, Copy, Info, QrCode, ScanLine, Share2, X, Zap } from 'lucide-react-native';
+import { ChevronLeft, ClipboardIcon, Copy, Hash, Info, QrCode, ScanLine, Share2, Zap } from 'lucide-react-native';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Share, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Keyboard, KeyboardAvoidingView, Platform, ScrollView, Share, StyleSheet, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 
 export default function PlayWithFriendScreen() {
@@ -21,6 +22,8 @@ export default function PlayWithFriendScreen() {
   const { colors } = useTheme();
   const { showModal, hideModal, showToast } = useUI();
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const qrSize = Math.min(width, Layout.MAX_CONTENT_WIDTH) * 0.7;
   
   const [activeTab, setActiveTab] = useState<'host' | 'join'>('host');
   const [gameId, setGameId] = useState<string | null>(null);
@@ -39,14 +42,34 @@ export default function PlayWithFriendScreen() {
 
   // Cleanup on unmount
   useEffect(() => {
-      return () => {
-          const id = gameIdRef.current;
-          if (id && !isJoiningRef.current) {
-              supabase.from('games').update({ status: 'abandoned' }).eq('id', id).then(({ error }) => {
-                  if (error) console.log('Error cleaning up game:', error);
-              });
-          }
-      };
+      const id = gameIdRef.current;
+      if (id && !isJoiningRef.current) {
+          supabase.from('games').update({ status: 'abandoned' }).eq('id', id).then(({ error }) => {
+              if (error) console.log('Error cleaning up game:', error);
+          });
+      }
+  }, []);
+
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const keyboardWillShowListener = Keyboard.addListener(
+      'keyboardDidShow',
+      () => {
+        setKeyboardVisible(true);
+      }
+    );
+    const keyboardWillHideListener = Keyboard.addListener(
+      'keyboardDidHide',
+      () => {
+        setKeyboardVisible(false);
+      }
+    );
+
+    return () => {
+      keyboardWillHideListener.remove();
+      keyboardWillShowListener.remove();
+    };
   }, []);
 
   const navigation = useNavigation();
@@ -100,6 +123,26 @@ export default function PlayWithFriendScreen() {
 
   const isCreatingRef = useRef(false);
 
+  // Helper to validate UUID
+  const isValidUUID = (uuid: string) => {
+    if (!uuid || typeof uuid !== 'string') return false;
+    const cleanUuid = uuid.trim();
+    const regex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    return regex.test(cleanUuid);
+  };
+
+  const parseGameId = (data: string) => {
+    let gameId = data.trim();
+    // Handle URL formats like tic-tac-toe://game/UUID or https://.../game/UUID
+    if (data.includes('/game/')) {
+        const parts = data.split('/game/');
+        if (parts.length > 1) {
+             gameId = parts[1].split('?')[0].split('&')[0];
+        }
+    }
+    return gameId;
+  };
+
   const createGame = useCallback(async () => {
     if (!user || isCreatingRef.current) return;
     isCreatingRef.current = true;
@@ -133,7 +176,7 @@ export default function PlayWithFriendScreen() {
   }, [activeTab, user, gameId, createGame]);
 
   useEffect(() => {
-    if (!gameId) return;
+    if (!gameId || !isValidUUID(gameId)) return;
 
     // Realtime subscription
     const channel = supabase
@@ -153,15 +196,27 @@ export default function PlayWithFriendScreen() {
 
     // Polling fallback (in case realtime fails)
     const interval = setInterval(async () => {
-        const { data } = await supabase
-            .from('games')
-            .select('status, player_o')
-            .eq('id', gameId)
-            .single();
-        
-        if (data && (data.status === 'playing' || data.player_o)) {
-            isJoiningRef.current = true;
-            router.replace(`/game/${gameId}`);
+        try {
+            const { data, error } = await supabase
+                .from('games')
+                .select('status, player_o')
+                .eq('id', gameId)
+                .single();
+            
+            if (error) {
+                // Ignore specific polling errors like invalid UUID if they somehow slip through
+                // Check both code and message to be robust
+                if (error.code === '22P02' || error.message?.includes('invalid input syntax')) return; 
+                console.log('[Polling] Error fetching game:', error);
+                return;
+            }
+
+            if (data && (data.status === 'playing' || data.player_o)) {
+                isJoiningRef.current = true;
+                router.replace(`/game/${gameId}`);
+            }
+        } catch (err) {
+            console.log('[Polling] Unexpected error:', err);
         }
     }, 3000);
 
@@ -186,8 +241,18 @@ export default function PlayWithFriendScreen() {
     }
   };
 
-  const handleJoin = async (id: string) => {
-    if (!user || !id) return;
+  const handleJoin = async (input: string) => {
+    if (!user || !input) return;
+    
+    // Parse potentially raw input (URL or whitespace)
+    const id = parseGameId(input);
+
+    if (!isValidUUID(id)) {
+        showToast({ type: 'error', title: 'Invalid ID', message: 'The Game ID provided is invalid.' });
+        setScanned(false);
+        return;
+    }
+
     setLoading(true);
     try {
         const { data: game, error: fetchError } = await supabase
@@ -196,7 +261,15 @@ export default function PlayWithFriendScreen() {
             .eq('id', id)
             .single();
 
-        if (fetchError || !game) throw new Error('Game not found');
+        if (fetchError) {
+             // Handle 22P02 specifically if it slipped through validation
+             if (fetchError.code === '22P02') {
+                 throw new Error('Invalid Game ID format');
+             }
+             throw fetchError;
+        }
+
+        if (!game) throw new Error('Game not found');
         if (game.status !== 'waiting') throw new Error('Game is not available to join');
         if (game.player_x === user.id) {
             isJoiningRef.current = true;
@@ -217,10 +290,21 @@ export default function PlayWithFriendScreen() {
         isJoiningRef.current = true;
         router.replace(`/game/${id}`);
     } catch (error: any) {
-        showToast({ type: 'error', title: 'Connect Failed', message: error.message });
+        showToast({ type: 'error', title: 'Connect Failed', message: error.message || 'Could not join game' });
         setScanned(false);
     } finally {
         setLoading(false);
+    }
+  };
+
+  const handlePaste = async () => {
+    const text = await Clipboard.getStringAsync();
+    if (text) {
+      setJoinId(text.trim());
+      // Optional: Auto-join if it looks like a valid ID or link
+       if (text.length > 5) {
+        handleJoin(text.trim());
+      }
     }
   };
 
@@ -244,17 +328,31 @@ export default function PlayWithFriendScreen() {
             <Button variant="secondary" type='icon' size='sm' icon={<Info size={20} color={colors.text} />} onPress={() => setShowTips(true)} />
         </View>
 
-        <View style={styles.content}>
+        <KeyboardAvoidingView 
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={{ flex: 1 }}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 50}
+        >
+        <ScrollView 
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled" 
+            showsVerticalScrollIndicator={false}
+        >
         {activeTab === 'host' ? (
             <View style={styles.tabContent}>
                 <View style={styles.card}>
-                    <ThemedText type='subtitle' align='center' style={styles.cardTitle}>Your Game QR Code</ThemedText>
+                    <ThemedText type='subtitle' align='center' colorType='subtext' style={styles.cardTitle}>Your Game QR Code</ThemedText>
                     
                     <View style={[styles.qrContainer, { borderColor: colors.border }]}>
                         {loading ? (
                             <ActivityIndicator size="large" color={colors.accent} />
                         ) : gameId ? (
-                            <QRCode value={gameId} size={200} backgroundColor="white" color="black" />
+                            <QRCode 
+                                value={gameId} 
+                                size={qrSize} 
+                                backgroundColor={colors.background} 
+                                color={colors.text} 
+                            />
                         ) : (
                             <ThemedText type='label' colorType='subtext' align='center'>Creating game...</ThemedText>
                         )}
@@ -262,7 +360,7 @@ export default function PlayWithFriendScreen() {
 
                     {gameId && (
                         <View style={styles.idSection}>
-                            <ThemedText type='label' colorType='subtext' align='center' style={{ marginBottom: 8 }}>Game UID</ThemedText>
+                            <ThemedText type='label' colorType='subtext' align='center' style={{ marginBottom: 12 }}>Game UID</ThemedText>
                             <View style={[styles.idBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
                                 <ThemedText style={styles.idText} numberOfLines={1} ellipsizeMode='middle'>{gameId}</ThemedText>
                             </View>
@@ -288,7 +386,9 @@ export default function PlayWithFriendScreen() {
                 </View>
             </View>
         ) : (
-            <View style={styles.tabContent}>
+                <View style={styles.tabContent}>
+                    <ThemedText type='subtitle' align='center' colorType='subtext' style={styles.cardTitle}>Scan QR Code</ThemedText>
+                  
                 <View style={[styles.cameraContainer, { borderColor: colors.accent }]}>
                     {permission.granted ? (
                       <View style={styles.scanOverlay}>
@@ -309,52 +409,62 @@ export default function PlayWithFriendScreen() {
                     )}
                 </View>
 
-                <View style={styles.inputSection}>
-                    <ThemedText align='center' colorType='subtext' style={{ marginBottom: 16 }}>Or enter code manually</ThemedText>
-                    <View style={styles.inputRow}>
-                        <Input 
-                            placeholder="Paste Game ID"
-                            value={joinId}
-                            onChangeText={setJoinId}
-                            containerClassName="flex-1"
-                        />
+                <View style={[styles.manualInputSection, {backgroundColor: colors.background}]}>
+                    <ThemedText size="sm" weight="medium" align="center" colorType="subtext">Or enter Game ID manually</ThemedText>
+                    <Input 
+                       placeholder="Enter Game ID"
+                       value={joinId}
+                       onChangeText={setJoinId}
+                       autoCapitalize="none"
+                       leftIcon={<Hash size={20} />}
+                       rightIcon={
                         <Button 
-                            disabled={loading || !joinId}
-                            onPress={() => handleJoin(joinId)}
+                           type="icon"
+                           variant="ghost"
+                           size="sm"
+                           onPress={() => handlePaste()}
+                           icon={<ClipboardIcon size={20} color={colors.accent} />}
+                        />
+                       }
+                    />
+                        <Button 
                             title="Join"
                             variant="primary"
-                            style={{ height: 56, marginLeft: 12, justifyContent: 'center' }}
+                            size="md"
+                            onPress={() => handleJoin(joinId)}
+                            disabled={!joinId.trim()}
                         />
-                    </View>
-                </View>
+                 </View>
             </View>
         )}
-        </View>
+        <View style={{ height: 100 }} /> 
+        </ScrollView>
 
         {/* Floating Bottom Tabs */}
+        {!keyboardVisible && (
         <View style={styles.floatingTabsContainer}>
-            <View style={[styles.floatingTabs, { backgroundColor: colors.card, borderColor: colors.border}]}>
+            <View style={[styles.floatingTabs, { backgroundColor: colors.background, borderColor: colors.border}]}>
                 <TouchableOpacity onPress={() => {
                     setActiveTab('host');
-                }} style={[styles.tabButton, activeTab === 'host' && { backgroundColor: `${colors.accent}20` }]}>
-                    <QrCode size={20} color={activeTab === 'host' ? colors.accent : colors.subtext} />
-                    <ThemedText weight="bold" colorType={activeTab === 'host' ? 'accent' : 'subtext'}>Host</ThemedText>
+                }} style={[styles.tabButton, activeTab === 'host' && { backgroundColor: `${colors.accent}` }]}>
+                    <QrCode size={20} color={activeTab === 'host' ? colors.white : colors.subtext} />
+                    <ThemedText weight="bold" colorType={activeTab === 'host' ? 'white' : 'subtext'}>Host</ThemedText>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={() => {
                     setActiveTab('join');
-                }} style={[styles.tabButton, activeTab === 'join' && { backgroundColor: `${colors.accent}20` }]}>
-                    <ScanLine size={20} color={activeTab === 'join' ? colors.accent : colors.subtext} />
-                    <ThemedText weight="bold" colorType={activeTab === 'join' ? 'accent' : 'subtext'}>Scan</ThemedText>
+                }} style={[styles.tabButton, activeTab === 'join' && { backgroundColor: `${colors.accent}` }]}>
+                    <ScanLine size={20} color={activeTab === 'join' ? colors.white : colors.subtext} />
+                    <ThemedText weight="bold" colorType={activeTab === 'join' ? 'white' : 'subtext'}>Scan</ThemedText>
                 </TouchableOpacity>
             </View>
         </View>
+        )}
+        </KeyboardAvoidingView>
       </ThemedView>
 
       <BottomSheet visible={showTips} onClose={() => setShowTips(false)}>
-        <ThemedView style={[styles.sheetHeader, { borderColor: colors.border }]}>
-          <ThemedText type="defaultSemiBold" size="lg" colorType="text" weight="bold">How to Connect</ThemedText>
-          <Button variant="secondary" size='sm' type='icon' onPress={() => setShowTips(false)} icon={<X size={20} color={colors.text} />} />
-        </ThemedView>
+        <SheetHeader title="How to Connect" onClose={() => setShowTips(false)} />
+        
         <ThemedView style={styles.bottomSheetContent}>
           <View style={{ gap: 16 }}>
               <ThemedView style={[styles.tipCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -424,8 +534,9 @@ const styles = StyleSheet.create({
   bottomSheetContent: {
     padding: 20,
   },
-  content: {
-    flex: 1,
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: 100, // Space for floating tabs
   },
   tabContent: {
     flex: 1,
@@ -440,17 +551,13 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   qrContainer: {
-    padding: 24,
-    backgroundColor: 'white',
+    width: '100%',
+    aspectRatio: 1/1,
     borderRadius: 24,
     borderWidth: 1,
     marginBottom: 24,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 8,
   },
   idSection: {
     width: '100%',
@@ -477,7 +584,7 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     overflow: 'hidden',
     borderWidth: 2,
-    marginBottom: 32,
+    marginBottom: 24,
     backgroundColor: '#000',
     alignItems: 'center',
     justifyContent: 'center',
@@ -492,12 +599,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  inputSection: {
+  manualInputSection: {
+    gap: Layout.isSmallDevice ? 8 : 12,
     width: '100%',
-  },
-  inputRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+    borderRadius: 24,
   },
   floatingTabsContainer: {
     position: 'absolute',

@@ -1,16 +1,7 @@
 import { useTheme } from '@/context/ThemeContext';
-import { StyleSheet, Text, type TextProps } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 
-export type ThemedTextProps = TextProps & {
-  lightColor?: string;
-  darkColor?: string;
-  type?: 'default' | 'title' | 'defaultSemiBold' | 'subtitle' | 'link' | 'caption' | 'error' | 'label';
-  weight?: 'normal' | 'medium' | 'semibold' | 'bold' | 'black';
-  size?: number | 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl' | '6xl';
-  align?: 'left' | 'center' | 'right';
-  colorType?: 'text' | 'subtext' | 'error' | 'success' | 'accent' | 'primary' | 'white' | 'black' | 'themedWhite' | 'themedBlack';
-  uppercase?: boolean;
-};
+import { ThemedTextProps } from '@/types/theme';
 
 export function ThemedText({
   style,
@@ -22,7 +13,6 @@ export function ThemedText({
   align,
   colorType,
   uppercase,
-  className,
   children,
   ...rest
 }: ThemedTextProps) {
@@ -77,7 +67,6 @@ export function ThemedText({
   return (
     <Text
       style={[typeStyle, customStyle, style]}
-      className={className}
       accessibilityRole={type === 'title' ? 'header' : type === 'link' ? 'link' : 'text'}
         {...rest}
       >

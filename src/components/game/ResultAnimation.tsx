@@ -1,10 +1,10 @@
+import { ThemedText } from '@/components/ui/Text';
+import { ThemedView } from '@/components/ui/View';
 import { useTheme } from '@/context/ThemeContext';
-import { Crown, Frown, Handshake } from 'lucide-react-native';
+import { Layout } from '@/lib/constants/Layout';
 import React, { useEffect } from 'react';
 import { Dimensions, StyleSheet, View } from 'react-native';
 import Animated, { Easing, FadeInDown, useAnimatedStyle, useSharedValue, withDelay, withRepeat, withSequence, withSpring, withTiming } from 'react-native-reanimated';
-import { ThemedText } from '../Text';
-import { ThemedView } from '../View';
 
 type ResultType = 'win' | 'loss' | 'draw';
 
@@ -18,7 +18,7 @@ const ConfettiParticle = ({ delay, x }: { delay: number, x: number }) => {
     useEffect(() => {
         y.value = withDelay(delay, withTiming(height + 100, { duration: 2500, easing: Easing.linear }));
         rot.value = withRepeat(withTiming(360, { duration: 800 + Math.random() * 500 }), -1);
-    }, []);
+    }, [y, rot, delay, x]);
 
     const style = useAnimatedStyle(() => ({
         transform: [{ translateY: y.value }, { rotate: `${rot.value}deg` }, { rotateX: `${rot.value}deg` }],
@@ -74,7 +74,7 @@ const WinBadge = ({ colors }: { colors: any }) => {
 
     useEffect(() => {
         scale.value = withSpring(1, { damping: 12, stiffness: 90 });
-    }, []);
+    }, [scale]);
 
     const style = useAnimatedStyle(() => ({
         transform: [{ scale: scale.value }]
@@ -84,7 +84,7 @@ const WinBadge = ({ colors }: { colors: any }) => {
         <BadgeContainer>
             <Animated.View style={[styles.glow, { backgroundColor: colors.primary }, style]} />
             <Animated.View style={[styles.badge, { backgroundColor: colors.background }, style]}>
-                <Crown size={80} color={colors.primary} fill={colors.primary} strokeWidth={1} />
+                <ThemedText style={{ fontSize: 80, lineHeight: 90, textAlign: 'center' }}>🎉</ThemedText>
             </Animated.View>
         </BadgeContainer>
     );
@@ -101,7 +101,7 @@ const LossAnimation = ({ colors }: { colors: any }) => {
             withRepeat(withTiming(10, { duration: 100 }), 5, true),
             withTiming(0, { duration: 100 })
         );
-    }, []);
+    }, [scale, rot]);
 
     const style = useAnimatedStyle(() => ({
         transform: [{ rotate: `${rot.value}deg` }, { scale: scale.value }]
@@ -109,8 +109,9 @@ const LossAnimation = ({ colors }: { colors: any }) => {
 
     return (
         <BadgeContainer>
-             <Animated.View style={[styles.badge, { backgroundColor: colors.background, padding: 20 }, style]}>
-                <Frown size={100} color={colors.error} strokeWidth={1.5} />
+            <Animated.View style={[styles.glow, { backgroundColor: colors.primary }, style]} />
+             <Animated.View style={[styles.badge, { backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' }, style]}>
+                <ThemedText style={{ fontSize: 80, lineHeight: 90, textAlign: 'center' }}>😢</ThemedText>
              </Animated.View>
         </BadgeContainer>
     );
@@ -121,7 +122,7 @@ const DrawAnimation = ({ colors }: { colors: any }) => {
 
     useEffect(() => {
         scale.value = withSpring(1);
-    }, []);
+    }, [scale]);
 
     const style = useAnimatedStyle(() => ({
         transform: [{ scale: scale.value }]
@@ -129,8 +130,9 @@ const DrawAnimation = ({ colors }: { colors: any }) => {
 
     return (
         <BadgeContainer>
-            <Animated.View style={[styles.badge, { backgroundColor: colors.background, padding: 20 }, style]}>
-                 <Handshake size={100} color={colors.text} strokeWidth={1.5} />
+            <Animated.View style={[styles.glow, { backgroundColor: colors.primary }, style]} />
+            <Animated.View style={[styles.badge, { backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' }, style]}>
+                 <ThemedText style={{ fontSize: 80, lineHeight: 90, textAlign: 'center' }}>🤝</ThemedText>
             </Animated.View>
         </BadgeContainer>
     );
@@ -163,7 +165,7 @@ const styles = StyleSheet.create({
         zIndex: 50,
     },
     textContainer: {
-        marginTop: 300, // Push text below badge
+        marginTop: 280,
         zIndex: 20,
     },
     centerOverlay: {
@@ -173,21 +175,18 @@ const styles = StyleSheet.create({
     },
     glow: {
         position: 'absolute',
-        width: 250,
-        height: 250,
-        borderRadius: 125,
-        opacity: 0.2,
+        width: Layout.CONTAINER_WIDTH_PERCENT,
+        maxWidth: Layout.MAX_CONTENT_WIDTH,
+        borderRadius: Layout.borderRadius.full,
+        aspectRatio: 1,
+        opacity: 0.5,
     },
     badge: {
         alignItems: 'center',
         justifyContent: 'center',
         padding: 40,
-        borderRadius: 9999, // circle
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.15,
-        shadowRadius: 20,
-        elevation: 10,
+        borderRadius: 9999,
+        aspectRatio: 1,
     },
     particle: {
         position: 'absolute',

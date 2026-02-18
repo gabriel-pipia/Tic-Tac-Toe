@@ -1,18 +1,10 @@
-import { BlurView, BlurViewProps } from 'expo-blur';
-import { KeyboardAvoidingView, Platform, ScrollView, ScrollViewProps, View, ViewProps } from 'react-native';
-import { type Edge, SafeAreaView, SafeAreaViewProps } from 'react-native-safe-area-context';
+import { BlurView } from 'expo-blur';
+import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useTheme } from '@/context/ThemeContext';
 
-export type ThemedViewProps = ViewProps & ScrollViewProps & BlurViewProps & SafeAreaViewProps & {
-  themed?: boolean;
-  scroll?: boolean;
-  blur?: boolean;
-  keyboardAvoiding?: boolean;
-  safe?: boolean;
-  edges?: readonly Edge[];
-  keyboardOffset?: number;
-};
+import { ThemedViewProps } from '@/types/theme';
 
 export function ThemedView({
   style,
@@ -23,7 +15,6 @@ export function ThemedView({
   safe,
   edges,
   keyboardOffset,
-  className,
   intensity,
   tint,
   children,
@@ -35,7 +26,7 @@ export function ThemedView({
   const baseStyle = themed ? [{ backgroundColor: colors.background }, style] : style;
 
   let content = (
-    <View style={baseStyle} className={className} {...otherProps}>
+    <View style={baseStyle} {...otherProps}>
       {children}
     </View>
   );
@@ -44,7 +35,6 @@ export function ThemedView({
     content = (
       <ScrollView
         style={baseStyle}
-        className={className}
         contentContainerStyle={otherProps.contentContainerStyle}
         {...otherProps}
       >
@@ -55,7 +45,6 @@ export function ThemedView({
     content = (
       <BlurView
         style={style} 
-        className={className}
         intensity={intensity}
         tint={tint}
         experimentalBlurMethod="dimezisBlurView"
@@ -81,7 +70,7 @@ export function ThemedView({
 
   if (safe) {
     content = (
-      <SafeAreaView style={[{ flex: 1 }, themed && { backgroundColor: colors.background }]} edges={edges} className={className}>
+      <SafeAreaView style={[{ flex: 1 }, themed && { backgroundColor: colors.background }]} edges={edges}>
         {content}
       </SafeAreaView>
     );

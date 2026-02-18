@@ -12,6 +12,7 @@ export default function RefreshControl(props: RefreshControlProps) {
 
   return (
     <RNRefreshControl
+      progressViewOffset={40}
       // iOS
       tintColor={colors.accent}
       titleColor={colors.subtext}

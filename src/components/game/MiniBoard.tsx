@@ -1,10 +1,11 @@
 import { useTheme } from '@/context/ThemeContext';
+import { Player } from '@/types/game';
 import { Circle, X } from 'lucide-react-native';
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 
 type MiniBoardProps = {
-    board: (string | null)[];
+    board: (Player | null)[];
     winLine?: number[];
 };
 

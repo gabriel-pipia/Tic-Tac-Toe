@@ -2,7 +2,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { BlurView } from 'expo-blur';
 import { AlertCircle, AlertTriangle, CheckCircle, Info } from 'lucide-react-native';
 import React, { useEffect } from 'react';
-import { Platform, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
     Easing,
@@ -15,19 +15,7 @@ import Animated, {
     withSpring
 } from 'react-native-reanimated';
 
-export type ToastType = 'success' | 'error' | 'warning' | 'info';
-
-export interface ToastConfig {
-    id: string;
-    type: ToastType;
-    title: string;
-    message?: string;
-    duration?: number;
-    action?: {
-        label: string;
-        onPress: () => void;
-    };
-}
+import { ToastConfig } from '@/types/ui';
 
 interface ToastProps {
     config: ToastConfig;
@@ -92,12 +80,14 @@ export default function Toast({ config, onDismiss }: ToastProps) {
             }
         });
 
+    const gesture = pan;
+
     const animatedStyle = useAnimatedStyle(() => ({
         transform: [{ translateY: translateY.value }],
     }));
 
     return (
-        <GestureDetector gesture={pan}>
+        <GestureDetector gesture={gesture}>
             <Animated.View 
                 entering={SlideInUp.duration(500).easing(Easing.out(Easing.cubic))} 
                 exiting={SlideOutUp.duration(400).easing(Easing.in(Easing.cubic))}
@@ -117,7 +107,16 @@ export default function Toast({ config, onDismiss }: ToastProps) {
                     <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.sheetBg, opacity: 0.95 }]} />
                 )}
                 
-                <View style={styles.contentContainer}>
+                <Pressable 
+                    onPress={() => {
+                        console.log('[Toast] pressable pressed');
+                        if (config.onPress) {
+                            config.onPress();
+                            onDismiss(config.id);
+                        }
+                    }}
+                    style={styles.contentContainer}
+                >
                     <View style={styles.iconContainer}>
                         {getIcon()}
                     </View>
@@ -131,13 +130,16 @@ export default function Toast({ config, onDismiss }: ToastProps) {
 
                     {config.action && (
                          <Text 
-                            onPress={config.action.onPress}
+                            onPress={(e) => {
+                                e.stopPropagation();
+                                config.action?.onPress();
+                            }}
                             style={[styles.action, { color: colors.primary }]}
                          >
                             {config.action.label}
                          </Text>
                     )}
-                </View>
+                </Pressable>
                 
                 {/* Progress bar could go here */}
             </Animated.View>

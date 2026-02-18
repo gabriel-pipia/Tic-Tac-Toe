@@ -1,16 +1,16 @@
-import BottomSheet from '@/components/BottomSheet';
-import Button from '@/components/Button';
-import RefreshControl from '@/components/RefreshControl';
-import { ThemedText } from '@/components/Text';
-import { ThemedView } from '@/components/View';
-import { Layout } from '@/constants/Layout';
+import BottomSheet from '@/components/ui/BottomSheet';
+import Button from '@/components/ui/Button';
+import RefreshControl from '@/components/ui/RefreshControl';
+import { ThemedText } from '@/components/ui/Text';
+import { ThemedView } from '@/components/ui/View';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useUI } from '@/context/UIContext';
-import { supabase } from '@/utils/supabase';
+import { Layout } from '@/lib/constants/Layout';
+import { supabase } from '@/lib/supabase/client';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { Calendar, Check, CheckCircle2, ChevronLeft, Clock, Filter, Gamepad2, Handshake, ThumbsDown, Trash2, Trophy, User as UserIcon, X } from 'lucide-react-native';
+import { Calendar, Check, CheckCheck, ChevronLeft, Circle, Clock, Filter, Gamepad2, Handshake, RefreshCw, ThumbsDown, Trash2, Trophy, User as UserIcon, X } from 'lucide-react-native';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -62,7 +62,7 @@ const ROLE_OPTIONS: { label: string; value: RoleFilter }[] = [
 export default function GameHistoryScreen() {
   const { user } = useAuth();
   const { colors } = useTheme();
-  const { showModal, hideModal } = useUI();
+  const { showModal, hideModal, showToast } = useUI();
   const router = useRouter();
   const [games, setGames] = useState<GameHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -180,14 +180,18 @@ export default function GameHistoryScreen() {
     if (resultFilter !== 'all' && user) {
       filtered = filtered.filter(g => {
         const isX = g.player_x === user.id;
-        const myMark = isX ? 'X' : 'O';
-        const isWin = g.status === 'finished' && g.winner === myMark;
-        const isDraw = g.status === 'finished' && g.winner === 'DRAW';
+        const myScore = isX ? (g.score_x || 0) : (g.score_o || 0);
+        const oppScore = isX ? (g.score_o || 0) : (g.score_x || 0);
+        
+        const isTerminal = g.status === 'finished' || g.status === 'abandoned' || g.status === 'opponent_left';
+        const isWin = isTerminal && myScore > oppScore;
+        const isDraw = isTerminal && myScore === oppScore;
+        const isLoss = isTerminal && myScore < oppScore;
 
         switch (resultFilter) {
-          case 'in_progress': return g.status === 'playing' || g.status === 'waiting';
+          case 'in_progress': return g.status === 'playing' || g.status === 'waiting' || g.status.startsWith('rematch_');
           case 'wins': return isWin;
-          case 'losses': return g.status === 'finished' && !isWin && !isDraw;
+          case 'losses': return isLoss;
           case 'draws': return isDraw;
           case 'abandoned': return g.status === 'abandoned';
           default: return true;
@@ -316,14 +320,52 @@ export default function GameHistoryScreen() {
     );
   };
 
+  const [rematchLoadingId, setRematchLoadingId] = useState<string | null>(null);
+
+  const handleRematch = async (item: GameHistoryItem) => {
+      if (!user) return;
+      
+      setRematchLoadingId(item.id);
+      try {
+          const isX = item.player_x === user.id;
+          const myMark = isX ? 'X' : 'O';
+          const newStatus = `rematch_requested_${myMark}`;
+          
+          const { error } = await supabase.from('games').update({ status: newStatus }).eq('id', item.id);
+          
+          if (error) throw error;
+          
+          showToast({
+              type: 'success',
+              title: 'Rematch Requested',
+              message: 'Your opponent was invited to join!'
+          });
+          
+          router.push(`/game/${item.id}`);
+      } catch (err) {
+          console.error("Failed to start rematch from history:", err);
+          showToast({
+              type: 'error',
+              title: 'Rematch Failed',
+              message: 'Could not send rematch request.'
+          });
+      } finally {
+          setRematchLoadingId(null);
+      }
+  };
+
   const renderItem = ({ item, index }: { item: GameHistoryItem, index: number }) => {
     const isX = item.player_x === user?.id;
-    const myMark = isX ? 'X' : 'O';
-    const isWin = item.status === 'finished' && item.winner === myMark;
-    const isDraw = item.status === 'finished' && item.winner === 'DRAW';
-    const isInProgress = item.status === 'playing' || item.status === 'waiting';
+    const isFinished = item.status === 'finished' || item.status === 'opponent_left';
     const isAbandoned = item.status === 'abandoned';
+    const isInProgress = item.status === 'playing' || item.status === 'waiting' || item.status.startsWith('rematch_');
     
+    // Calculate result based on scores for terminal states
+    const myScore = isX ? (item.score_x || 0) : (item.score_o || 0);
+    const oppScore = isX ? (item.score_o || 0) : (item.score_x || 0);
+    const scoreWin = myScore > oppScore;
+    const scoreDraw = myScore === oppScore;
+
     let statusText = 'Unknown';
     let statusColor = colors.subtext;
     let Icon = Clock;
@@ -334,13 +376,13 @@ export default function GameHistoryScreen() {
         statusColor = colors.accent;
         Icon = item.status === 'waiting' ? UserIcon : Gamepad2;
         statusBg = colors.accent + '15';
-    } else if (item.status === 'finished') {
-        if (isWin) { 
+    } else if (isFinished || isAbandoned) {
+        if (scoreWin) { 
             statusText = 'Victory'; 
             statusColor = colors.success; 
             Icon = Trophy;
             statusBg = colors.success + '15';
-        } else if (isDraw) { 
+        } else if (scoreDraw) { 
             statusText = 'Draw'; 
             statusColor = colors.subtext; 
             Icon = Handshake;
@@ -351,11 +393,13 @@ export default function GameHistoryScreen() {
             Icon = ThumbsDown;
             statusBg = colors.error + '15';
         }
-    } else if (isAbandoned) {
-        statusText = 'Abandoned';
-        statusColor = colors.error;
-        Icon = X;
-        statusBg = colors.error + '10';
+        
+        // Custom badge for abandoned
+        if (isAbandoned) {
+            statusText += ' (Abnd)';
+        } else if (item.status === 'opponent_left') {
+            statusText += ' (Left)';
+        }
     }
 
     const date = new Date(item.created_at);
@@ -398,7 +442,7 @@ export default function GameHistoryScreen() {
               {isSelectionMode && (
                   <View style={[styles.selectionOverlay, { backgroundColor: isSelected ? colors.accent + '10' : 'transparent' }]}>
                       <View style={[styles.checkbox, { borderColor: isSelected ? colors.accent : colors.border, backgroundColor: isSelected ? colors.accent : colors.background }]}>
-                          {isSelected && <CheckCircle2 size={16} color="white" />}
+                          {isSelected && <Check size={20} color="white" />}
                       </View>
                   </View>
               )}
@@ -422,12 +466,12 @@ export default function GameHistoryScreen() {
                           <View style={[styles.avatarCircle, { backgroundColor: colors.background }]}>
                               <UserIcon size={32} color={colors.subtext} />
                           </View>
-                          <View style={[styles.markBadgeLarge, { backgroundColor: colors.primary }]}>
-                               <ThemedText size="xs" weight="bold" style={{ color: 'white' }}>X</ThemedText>
+                          <View style={[styles.markBadgeLarge, { backgroundColor: colors.primary, borderColor: colors.background }]}>
+                               <X size={16} strokeWidth={4} color={colors.white} />
                           </View>
                       </View>
                       <ThemedText weight="bold" size="sm" numberOfLines={1} style={styles.playerName}>
-                          {isX ? (user?.user_metadata?.username || 'You') : (item.player_x ? 'Opponent' : 'Bot')}
+                          {isX ? (user?.user_metadata?.username || 'You') : (item.opponent?.username || (item.player_x ? 'Opponent' : 'Open Room'))}
                       </ThemedText>
                   </View>
 
@@ -451,12 +495,12 @@ export default function GameHistoryScreen() {
                                   </View>
                               )}
                           </View>
-                          <View style={[styles.markBadgeLarge, { backgroundColor: colors.secondary }]}>
-                               <ThemedText size="xs" weight="bold" style={{ color: 'white' }}>O</ThemedText>
+                          <View style={[styles.markBadgeLarge, { backgroundColor: colors.secondary, borderColor: colors.background }]}>
+                               <Circle size={16} strokeWidth={4} color={colors.white} />
                           </View>
                       </View>
                       <ThemedText weight="bold" size="sm" numberOfLines={1} style={styles.playerName}>
-                          {!isX ? (user?.user_metadata?.username || 'You') : (item.opponent?.username || (item.player_o ? 'Opponent' : 'Bot'))}
+                          {!isX ? (user?.user_metadata?.username || 'You') : (item.opponent?.username || (item.player_o ? 'Opponent' : 'Waiting...'))}
                       </ThemedText>
                   </View>
               </View>
@@ -464,8 +508,27 @@ export default function GameHistoryScreen() {
               {/* Footer: Game ID & Link */}
               <View style={[styles.cardFooter, { borderTopColor: colors.border + '40' }]}>
                   <ThemedText size="xs" colorType="subtext" style={{ flex: 1 }}>ID: {item.id}</ThemedText>
-                  {isInProgress && (
+                  
+                  {isInProgress ? (
                       <ThemedText weight="bold" size="xs" colorType="accent">CONTINUE MATCH →</ThemedText>
+                  ) : (item.status === 'finished' || item.status === 'opponent_left' || item.status === 'abandoned') && (
+                      <TouchableOpacity 
+                        onPress={(e) => {
+                            e.stopPropagation();
+                            handleRematch(item);
+                        }}
+                        disabled={!!rematchLoadingId}
+                        style={[styles.rematchBtn, { backgroundColor: colors.accent + '20' }]}
+                      >
+                         {rematchLoadingId === item.id ? (
+                             <ActivityIndicator size="small" color={colors.accent} />
+                         ) : (
+                             <>
+                                <RefreshCw size={12} color={colors.accent} />
+                                <ThemedText weight="bold" size="xs" colorType="accent">REMATCH</ThemedText>
+                             </>
+                         )}
+                      </TouchableOpacity>
                   )}
               </View>
           </ThemedView>
@@ -511,7 +574,7 @@ export default function GameHistoryScreen() {
         {/* Header */}
         <View style={styles.header}>
             {isSelectionMode ? (
-                <View style={[styles.selectionHeader, { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}>
+                <View style={[styles.selectionHeader]}>
                     <Button
                       variant="secondary"
                       type='icon'
@@ -521,9 +584,9 @@ export default function GameHistoryScreen() {
                     />
                     <ThemedText size="lg" weight="bold">{selectedIds.size} Selected</ThemedText>
                     <Button
-                      variant="secondary"
+                      variant={selectedIds.size === filteredGames.length ? "secondary" : "primary"}
                       size='sm'
-                      icon={selectedIds.size === filteredGames.length ? <X size={20} color={colors.text} /> : <Check size={20} color={colors.text} />}
+                      icon={selectedIds.size === filteredGames.length ? <X size={20} color={colors.text} /> : <CheckCheck size={20} color={colors.text} />}
                       title={selectedIds.size === filteredGames.length ? 'None' : 'All'}
                       onPress={selectAll}
                     />
@@ -600,19 +663,20 @@ export default function GameHistoryScreen() {
               keyExtractor={item => item.id}
               contentContainerStyle={styles.listContent}
               refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+              showsVerticalScrollIndicator={false}
               ListEmptyComponent={
                   <View style={styles.emptyContainer}>
                       <Clock size={48} color={colors.subtext} />
-                      <ThemedText colorType="subtext" style={{ marginTop: 16 }}>
+                      <ThemedText colorType="subtext" size="md" style={{ marginTop: 16 }}>
                         {activeFilterCount > 0 ? 'No games match your filters.' : 'No games played yet.'}
                       </ThemedText>
                       {activeFilterCount > 0 && (
-                        <TouchableOpacity 
-                          style={{ marginTop: 12 }}
+                        <Button 
+                          variant="primary"
+                          size='sm'
+                          title='Clear Filters'
                           onPress={() => { setResultFilter('all'); setDateFilter('all'); setRoleFilter('all'); }}
-                        >
-                          <ThemedText weight="bold" style={{ color: colors.accent }}>Clear Filters</ThemedText>
-                        </TouchableOpacity>
+                        />
                       )}
                   </View>
               }
@@ -621,7 +685,7 @@ export default function GameHistoryScreen() {
 
         {/* Delete Toolbar */}
         {isSelectionMode && (
-            <Animated.View entering={FadeInDown} style={[styles.deleteToolbar, { backgroundColor: colors.card, borderTopColor: colors.border }]}>
+            <Animated.View entering={FadeInDown} style={[styles.deleteToolbar, { backgroundColor: colors.background, borderTopColor: colors.border }]}>
                 <View style={styles.toolbarContent}>
                     <ThemedText size="md" weight="bold" colorType="subtext">
                         {selectedIds.size} item{selectedIds.size !== 1 ? 's' : ''} selected
@@ -646,9 +710,12 @@ export default function GameHistoryScreen() {
           {/* Sheet Header */}
           <View style={styles.sheetHeader}>
             <ThemedText size="lg" weight="bold">Filter Games</ThemedText>
-            <TouchableOpacity onPress={resetFilters}>
-              <ThemedText weight="bold" style={{ color: colors.accent }}>Reset</ThemedText>
-            </TouchableOpacity>
+            <Button 
+              title="Reset"
+              variant="secondary"
+              size="sm"
+              onPress={resetFilters}
+            />
           </View>
 
           {/* Date Filter Section */}
@@ -749,11 +816,6 @@ const styles = StyleSheet.create({
   cardWrapper: {
     marginBottom: 20,
     borderRadius: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 4,
   },
   card: {
     borderRadius: 24,
@@ -836,7 +898,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: 'white',
   },
   playerName: {
     textAlign: 'center',
@@ -854,6 +915,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 16,
     borderTopWidth: 1,
+  },
+  rematchBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
   },
   previewGrid: {
     width: 32,
@@ -902,8 +971,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   selectionHeader: {
-    height: 48,
-    paddingHorizontal: 4,
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between'
   },
   selectionCancel: {
     padding: 4,
@@ -917,11 +988,6 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingHorizontal: 20,
     borderTopWidth: 1,
-    elevation: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
   },
   toolbarContent: {
     flexDirection: 'row',

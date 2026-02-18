@@ -1,17 +1,12 @@
-import { Layout } from '@/constants/Layout';
 import { useTheme } from '@/context/ThemeContext';
+import { Layout } from '@/lib/constants/Layout';
 import React from 'react';
 import { Modal, Pressable, StyleSheet, View } from 'react-native';
 import Button from './Button';
 import { ThemedText } from './Text';
 import { ThemedView } from './View';
 
-export interface ModalAction {
-  text: string;
-  onPress: () => void;
-  variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
-  loading?: boolean;
-}
+import { ModalAction } from '@/types/ui';
 
 interface ModalProps {
   visible: boolean;

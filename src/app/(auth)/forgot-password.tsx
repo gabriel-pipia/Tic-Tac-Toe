@@ -1,11 +1,12 @@
-import Button from '@/components/Button';
-import Input from '@/components/Input';
-import { ThemedText } from '@/components/Text';
-import { ThemedView } from '@/components/View';
-import { Layout } from '@/constants/Layout';
+import Button from '@/components/ui/Button';
+import Input from '@/components/ui/Input';
+import Logo from '@/components/ui/Logo';
+import { ThemedText } from '@/components/ui/Text';
+import { ThemedView } from '@/components/ui/View';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useUI } from '@/context/UIContext';
+import { Layout } from '@/lib/constants/Layout';
 import { useRouter } from 'expo-router';
 import { Mail } from 'lucide-react-native';
 import { useState } from 'react';
@@ -41,11 +42,11 @@ export default function ForgotPassword() {
         >
           <ThemedView style={styles.content}>
             <View style={styles.header}>
-                <View style={styles.logoContainer}>
-                    <Mail size={40} color="#C084FC" />
+                <View style={styles.logoWrapper}>
+                    <Logo variant="filled" size={100} />
                 </View>
-                <ThemedText size="3xl" weight="bold" colorType='text'>Reset Password</ThemedText>
-                <ThemedText size='md' weight='medium' colorType='subtext'>
+                <ThemedText size="3xl" weight="bold" style={{ marginBottom: 8, textAlign: 'center' }}>Reset Password</ThemedText>
+                <ThemedText size='md' colorType='subtext' style={{ textAlign: 'center' }}>
                   Enter your email to receive instructions
                 </ThemedText>
             </View>
@@ -99,19 +100,10 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: 'center',
-    marginBottom: 40,
-    gap: 12,
+    marginBottom: 48,
   },
-  logoContainer: {
-    width: 80,
-    height: 80,
-    backgroundColor: 'rgba(192, 132, 252, 0.2)',
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 24,
-    borderWidth: 2,
-    borderColor: 'rgba(192, 132, 252, 0.5)',
+  logoWrapper: {
+    marginBottom: 32,
   },
   form: {
     width: '100%',

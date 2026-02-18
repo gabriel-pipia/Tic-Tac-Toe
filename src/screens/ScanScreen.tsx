@@ -1,38 +1,54 @@
-import Button from '@/components/Button';
-import Input from '@/components/Input';
-import { ThemedText } from '@/components/Text';
+import Button from '@/components/ui/Button';
+import Input from '@/components/ui/Input';
+import { ThemedText } from '@/components/ui/Text';
 import { useTheme } from '@/context/ThemeContext';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Clipboard from 'expo-clipboard';
-import { useRouter } from 'expo-router';
-import { Clipboard as ClipboardIcon, Hash, ScanLine } from 'lucide-react-native';
-import React, { useState } from 'react';
-import { KeyboardAvoidingView, Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { setStatusBarHidden } from 'expo-status-bar';
+import { ClipboardIcon, Hash, ScanLine } from 'lucide-react-native';
+import React, { useCallback, useState } from 'react';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
 
-import { ThemedView } from '@/components/View';
-import { Layout } from '@/constants/Layout';
+import { ThemedView } from '@/components/ui/View';
+import { Layout } from '@/lib/constants/Layout';
 
 export default function ScanScreen() {
-  const { colors } = useTheme();
+  const { colors, setOverrideTheme } = useTheme();
   const [permission, requestPermission] = useCameraPermissions();
   const router = useRouter();
   const [scanned, setScanned] = useState(false);
   const [manualId, setManualId] = useState('');
 
+  useFocusEffect(
+    useCallback(() => {
+        setOverrideTheme('dark');
+        setStatusBarHidden(true, 'fade');
+        return () => {
+            setOverrideTheme(null);
+            setStatusBarHidden(false, 'fade');
+        };
+    }, [setOverrideTheme])
+  );
+
   if (!permission) {
-    return <View />;
+    return (
+      <ThemedView themed style={[styles.permissionContainer]}>
+        <ThemedText type="title" size="3xl" weight="bold" colorType="text" align="center" style={[styles.permissionText]}>Please wait, loading camera...</ThemedText>
+      </ThemedView>
+    );
   }
 
   if (!permission.granted) {
     return (
-      <View style={[styles.permissionContainer, { backgroundColor: colors.background }]}>
-        <ThemedText style={[styles.permissionText, { color: colors.text }]}>We need your permission to show the camera</ThemedText>
+      <ThemedView themed style={[styles.permissionContainer]}>
+        <ThemedText type="title" size="3xl" weight="bold" colorType="text" align="center" style={[styles.permissionText]}>We need your permission to show the camera</ThemedText>
         <Button 
             title="Grant Permission" 
             onPress={requestPermission} 
             style={styles.grantButton}
         />
-      </View>
+      </ThemedView>
     );
   }
 
@@ -81,12 +97,17 @@ export default function ScanScreen() {
       >
         <KeyboardAvoidingView 
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.overlay}
+          style={{ flex: 1 }}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 50}
         >
-           <View style={styles.content}>
+        <ScrollView 
+          contentContainerStyle={[styles.scrollContent, { minHeight: '100%' }]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
              <ThemedText style={styles.titleText}>Join Game</ThemedText>
              
-             <View style={[styles.scanFrame, {width: Layout.components.scanFrameSize as any, height: "auto"}]}>
+             <View style={[styles.scanFrame]}>
                 {/* Corner Markers */}
                 <View style={[styles.cornerTL, { borderColor: colors.accent }]} />
                 <View style={[styles.cornerTR, { borderColor: colors.accent }]} />
@@ -97,7 +118,7 @@ export default function ScanScreen() {
              </View>
              
              <View style={[styles.manualInputSection, {backgroundColor: colors.background}]}>
-                <ThemedText size="sm" weight="bold" align="center" colorType="subtext">SCAN QR PASTE CODE</ThemedText>
+                <ThemedText size="sm" weight="bold" align="center" colorType="subtext">Scan QR or Paste Game ID</ThemedText>
                 <Input 
                    placeholder="Enter Game ID"
                    value={manualId}
@@ -105,31 +126,24 @@ export default function ScanScreen() {
                    autoCapitalize="none"
                    leftIcon={<Hash size={20} />}
                    rightIcon={
-                    <TouchableOpacity onPress={handlePaste}>
-                      <ClipboardIcon size={20} color={colors.accent} />
-                    </TouchableOpacity>
+                    <Button 
+                       type="icon"
+                       variant="secondary"
+                       size="sm"
+                       onPress={() => handlePaste()}
+                       icon={<ClipboardIcon size={20} color={colors.accent} />}
+                    />
                    }
                 />
-                
-                <View style={styles.actionButtons}>
-                    <Button 
-                        title="Cancel"
-                        variant="secondary"
-                        size="sm"
-                        onPress={() => router.back()}
-                        style={{ flex: 1 }}
-                    />
                     <Button 
                         title="Join"
                         variant="primary"
-                        size="sm"
+                        size="md"
                         onPress={() => handleJoin(manualId)}
                         disabled={!manualId.trim()}
-                        style={{ flex: 2 }}
                     />
-                </View>
              </View>
-           </View>
+        </ScrollView>
         </KeyboardAvoidingView>
       </CameraView>
     </ThemedView>
@@ -144,15 +158,14 @@ const styles = StyleSheet.create({
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
+        marginHorizontal: "auto",
         padding: Layout.spacing.lg,
         width: Layout.CONTAINER_WIDTH_PERCENT,
         maxWidth: Layout.MAX_CONTENT_WIDTH,
     },
     permissionText: {
         textAlign: 'center',
-        marginBottom: Layout.spacing.md,
-        fontSize: 20,
-        fontWeight: 'bold',
+        marginBottom: Layout.spacing.xxl,
     },
     grantButton: {
         width: '100%',
@@ -160,18 +173,18 @@ const styles = StyleSheet.create({
     overlay: {
         flex: 1,
         justifyContent: 'center',
-        alignItems: 'center',
         backgroundColor: 'rgba(0, 0, 0, 0.5)',
     },
-    content: {
-        flex: 1,
-        justifyContent: 'space-between',
+    scrollContent: {
+        flexGrow: 1,
+        justifyContent: 'center', // Changed from space-evenly to allow scroll when compressed
         alignItems: 'center',
         width: Layout.CONTAINER_WIDTH_PERCENT,
         maxWidth: Layout.MAX_CONTENT_WIDTH,
-        gap: Layout.isSmallDevice ? 8 : 12,
-        paddingTop: Layout.isSmallDevice ? 40 : 80,
-        paddingBottom: Layout.isSmallDevice ? 60 : 80
+        alignSelf: 'center',
+        gap: Layout.isSmallDevice ? 16 : 24, // Increased gap
+        paddingTop: Layout.isSmallDevice ? 20 : 40,
+        paddingBottom: Layout.isSmallDevice ? 20 : 40
     },
     titleText: {
         color: 'white',
@@ -185,6 +198,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
         aspectRatio: 1 / 1,
+        width: "90%",
     },
     cornerTL: {
         position: 'absolute',
@@ -235,10 +249,9 @@ const styles = StyleSheet.create({
     },
     manualInputSection: {
         gap: Layout.isSmallDevice ? 8 : 12,
-        width: '100%',
         padding: Layout.isSmallDevice ? 16 : 24,
+        width: '100%',
         borderRadius: 24,
-        borderWidth: 1,
     },
     actionButtons: {
         flexDirection: 'row',

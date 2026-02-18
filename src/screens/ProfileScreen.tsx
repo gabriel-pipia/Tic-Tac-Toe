@@ -1,32 +1,34 @@
 import AvatarViewer from '@/components/AvatarViewer';
-import BottomSheet from '@/components/BottomSheet';
-import Button from '@/components/Button';
-import Input from '@/components/Input';
-import RefreshControl from '@/components/RefreshControl';
-import { ThemedText } from '@/components/Text';
-import { ThemedView } from '@/components/View';
-import { Layout } from '@/constants/Layout';
+import BottomSheet from '@/components/ui/BottomSheet';
+import Button from '@/components/ui/Button';
+import Input from '@/components/ui/Input';
+import RefreshControl from '@/components/ui/RefreshControl';
+import SheetHeader from '@/components/ui/SheetHeader';
+import { ThemedText } from '@/components/ui/Text';
+import { ThemedView } from '@/components/ui/View';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useUI } from '@/context/UIContext';
-import { supabase } from '@/utils/supabase';
+import { Layout } from '@/lib/constants/Layout';
+import { supabase } from '@/lib/supabase/client';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import {
+  Calendar,
   Camera,
   ChevronRight,
   Clock,
   LogOutIcon,
   Moon,
   Pencil,
+  RotateCcw,
   ShieldCheck,
   Sun,
   Trophy,
   User,
   UserCircle,
-  UserX,
-  X
+  UserX
 } from 'lucide-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -45,7 +47,7 @@ export default function ProfileScreen() {
   const { isDark, setTheme, colors } = useTheme();
   const { showToast, showModal, hideModal } = useUI();
   const router = useRouter();
-  const [stats, setStats] = useState({ wins: 0, losses: 0, draws: 0 });
+  const [stats, setStats] = useState({ wins: 0, losses: 0, draws: 0, created_at: null as string | null });
   const [combinations, setCombinations] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
 
@@ -75,7 +77,7 @@ export default function ProfileScreen() {
         if (!refreshing && loading) setLoading(true);
         const { data, error } = await supabase
           .from('profiles')
-          .select('wins, losses, draws, is_public, game_combinations')
+          .select('wins, losses, draws, is_public, game_combinations, created_at')
           .eq('id', user.id)
           .single();
 
@@ -86,6 +88,7 @@ export default function ProfileScreen() {
             wins: data.wins || 0,
             losses: data.losses || 0,
             draws: data.draws || 0,
+            created_at: data.created_at
           });
           setCombinations(data.game_combinations || {});
           
@@ -195,6 +198,43 @@ export default function ProfileScreen() {
               showToast({ type: 'info', title: 'Account Deleted', message: 'Your account has been scheduled for deletion.' });
             } catch (error: any) {
               showToast({ type: 'error', title: 'Deletion Failed', message: error.message });
+            } finally {
+              setLoading(false);
+            }
+          }
+        }
+      ]
+    });
+  };
+
+  const handleResetStats = () => {
+    showModal({
+      title: "Reset Statistics",
+      description: "Are you sure you want to reset your game statistics? This will clear your wins, losses, draws, and game patterns permanently.",
+      icon: <RotateCcw size={40} color={colors.warning} />,
+      actions: [
+        { text: "Cancel", variant: 'secondary', onPress: hideModal },
+        { 
+          text: "Reset", 
+          variant: 'danger', 
+          onPress: async () => {
+            hideModal();
+            try {
+              setLoading(true);
+              const { error } = await supabase.from('profiles').update({
+                  wins: 0,
+                  losses: 0,
+                  draws: 0,
+                  game_combinations: {}
+              }).eq('id', user?.id);
+
+              if (error) throw error;
+
+              setStats({ wins: 0, losses: 0, draws: 0, created_at: stats.created_at });
+              setCombinations({});
+              showToast({ type: 'success', title: 'Stats Reset', message: 'Your statistics have been reset successfully.' });
+            } catch (error: any) {
+              showToast({ type: 'error', title: 'Reset Failed', message: error.message });
             } finally {
               setLoading(false);
             }
@@ -337,7 +377,14 @@ export default function ProfileScreen() {
           </View>
 
           <ThemedText style={[localStyles.usernameText, { color: colors.text }]}>{username || 'Player'}</ThemedText>
-          <ThemedText style={[localStyles.emailText, { color: colors.subtext }]}>{user?.email}</ThemedText>
+          <ThemedText style={[localStyles.emailText, { color: colors.subtext, marginBottom: 4 }]}>{user?.email}</ThemedText>
+          
+          {stats.created_at && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 24, opacity: 0.7 }}>
+                <Calendar size={16} color={colors.subtext} />
+                <ThemedText size="sm" colorType="subtext">Joined {new Date(stats.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}</ThemedText>
+            </View>
+          )}
 
           {/* Quick Stats Bar */}
           <View style={[localStyles.statsBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -411,6 +458,12 @@ export default function ProfileScreen() {
                 label="Game History"
                 sublabel="View past matches"
                 action={() => router.push('/history')}
+              />
+              <SettingRow 
+                icon={<RotateCcw size={20} color={colors.warning} />} 
+                label="Reset Statistics"
+                sublabel="Clear wins, losses, and patterns"
+                action={handleResetStats}
                 isLast
               />
             </View>
@@ -462,18 +515,16 @@ export default function ProfileScreen() {
             </View>
           </View>
 
-          <ThemedText style={[localStyles.versionText, { color: colors.subtext }]}>
-            Version 1.0.4 • Build 2026
+          <ThemedText style={[localStyles.versionText]} size="sm" align="center" colorType='subtext'>
+            Version: 1.0.0  •  Build with love 💖
           </ThemedText>
         </View>
       </ScrollView>
 
       {/* Polish Edit Sheet */}
       <BottomSheet visible={showEditSheet} onClose={() => setShowEditSheet(false)}>
-          <View style={[localStyles.sheetHeader, { borderColor: colors.border }]}>
-          <ThemedText type="defaultSemiBold" size="lg" colorType="text" weight="bold">Update Profile</ThemedText>
-          <Button variant="secondary" size='sm' type='icon' onPress={() => setShowEditSheet(false)} icon={<X size={20} color={colors.text} />} />
-          </View>
+          <SheetHeader title="Update Profile" onClose={() => setShowEditSheet(false)} />
+        
 
           <View style={localStyles.sheetContent}>
           {/* Avatar Edit */}
@@ -681,11 +732,6 @@ const localStyles = StyleSheet.create({
     color: '#EF4444',
   },
   versionText: {
-    textAlign: 'center',
-    fontSize: 10,
-    fontWeight: 'bold',
-    textTransform: 'uppercase',
-    letterSpacing: 2,
     marginTop: 16,
   },
   sheetContent: {

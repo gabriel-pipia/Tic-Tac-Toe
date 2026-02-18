@@ -1,20 +1,24 @@
-import BottomSheet from '@/components/BottomSheet';
-import Button from '@/components/Button';
 import MiniBoard from '@/components/game/MiniBoard';
 import RuleCard from '@/components/game/RuleCard';
-import ProfileModal, { UserProfile } from '@/components/ProfileModal';
-import { ThemedText } from '@/components/Text';
-import { ThemedView } from '@/components/View';
+import ProfileModal from '@/components/ProfileModal';
+import BottomSheet from '@/components/ui/BottomSheet';
+import Button from '@/components/ui/Button';
+import SheetHeader from '@/components/ui/SheetHeader';
+import { ThemedText } from '@/components/ui/Text';
+import { ThemedView } from '@/components/ui/View';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useUI } from '@/context/UIContext';
-import GameScreen, { GameProfile } from '@/screens/GameScreen';
-import { BoardState, Player, checkWinner, getBestMove, getWinningLine } from '@/utils/gameLogic';
-import { supabase } from '@/utils/supabase';
+import { checkWinner, getBestMove, getWinningLine } from '@/lib/game/logic';
+import { supabase } from '@/lib/supabase/client';
+import GameScreen from '@/screens/GameScreen';
+import { BoardState, GameProfile, Player } from '@/types/game';
+import { UserProfile } from '@/types/user';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
-import { Handshake, RefreshCw, ThumbsDown, Trophy, User as UserIcon, X } from 'lucide-react-native';
+import { Handshake, RefreshCw, ThumbsDown, Trophy, User as UserIcon, UserX, WifiOff, X } from 'lucide-react-native';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Share, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, AppState, Share, StyleSheet, View } from 'react-native';
+import Animated, { FadeInDown, FadeOut, ZoomIn } from 'react-native-reanimated';
 
 
 
@@ -30,8 +34,8 @@ function resolveMode(id: string): { mode: GameMode; onlineGameId?: string } {
 export default function GameRoute() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { user } = useAuth();
-  const { colors } = useTheme();
+  const { user, loading: authLoading } = useAuth();
+  const { colors, isDark } = useTheme();
   const {showModal, hideModal, showToast} = useUI()
 
   const { mode, onlineGameId } = resolveMode(id || 'solo');
@@ -44,7 +48,7 @@ export default function GameRoute() {
   const [showRules, setShowRules] = useState(false);
 
   // Online-only state
-  const [gameId] = useState<string | null>(onlineGameId ?? null);
+  const gameId = onlineGameId ?? null;
   const [onlineStatus, setOnlineStatus] = useState<string>(onlineGameId ? 'waiting' : 'playing');
   const [myMark, setMyMark] = useState<Player | null>(null);
   const [loading, setLoading] = useState(false);
@@ -61,6 +65,12 @@ export default function GameRoute() {
   const disconnectTimeoutRef = React.useRef<any>(null);
   
   const [modalProfile, setModalProfile] = useState<UserProfile | null>(null);
+
+  // Reactions
+  const [reactionX, setReactionX] = useState<string | null>(null);
+  const [reactionO, setReactionO] = useState<string | null>(null);
+  const reactionTimeoutXRef = React.useRef<any>(null);
+  const reactionTimeoutORef = React.useRef<any>(null);
   
   useEffect(() => {
     onlineStatusRef.current = onlineStatus;
@@ -80,6 +90,18 @@ export default function GameRoute() {
   
   const wasMissingOpponentRef = React.useRef(false);
   const isGracePeriodRef = React.useRef(true);
+  const rematchNotifiedRef = React.useRef<string | null>(null);
+  
+  const myMarkRef = React.useRef(myMark);
+  const userRef = React.useRef(user);
+
+  useEffect(() => {
+    myMarkRef.current = myMark;
+  }, [myMark]);
+
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   useEffect(() => {
       const timer = setTimeout(() => {
@@ -87,6 +109,18 @@ export default function GameRoute() {
       }, 5000); // 5 seconds grace period for connection stability
       return () => clearTimeout(timer);
   }, []);
+
+  // ─── Auth Guard ───
+  useEffect(() => {
+    if (!authLoading && !user) {
+        // Redirect to login if trying to access online game without auth
+        // Assuming there is a login route or we show a modal. 
+        // For now, let's just show a toast and go home, or rely on the UI showing "Please Login".
+        // But since we want to fix specific connection issues, let's ensure we don't try to join.
+          showToast({ title: 'Authentication Required', message: 'Please log in to play online.', type: 'error' });
+          router.replace('/(auth)/login'); // Adjust route as needed, or just home
+    }
+  }, [authLoading, user, router, showToast]);
 
   // ─── Helper to fetch single profile ───
   const fetchProfile = useCallback(async (userId: string) => {
@@ -168,12 +202,6 @@ export default function GameRoute() {
   // ─── Stats Update ───
   useEffect(() => {
     if (!winner || !user) return;
-    
-    // For online, gameId is unique per match. For solo, we might not have gameId or it's just 'solo'.
-    // If 'solo', we need to check if we already updated for THIS instance of winner state?
-    // Winner state resets to null on reset. So checking if winner is set is enough? 
-    // BUT effect deps change.
-    // Let's use a flag that resets when winner becomes null.
     
     if (lastUpdatedGameIdRef.current === (gameId || 'solo_session')) return;
 
@@ -340,6 +368,75 @@ export default function GameRoute() {
     joinOrRejoin();
   }, [mode, onlineGameId, user, router, fetchGameProfiles, fetchProfile, colors, showModal, hideModal]);
 
+  // ─── Polling Fallback & Foreground Refresh ───
+  useEffect(() => {
+      if (mode !== 'online' || !gameId || !user) return;
+
+      // Poll every 3s if waiting, to fallback if realtime misses the 'playing' event
+      // Also poll if 'playing' just to ensure board sync occasionally? No, realtime is usually fine for moves.
+      // But for the initial 'waiting' -> 'playing' transition, it's critical.
+      const shouldPoll = onlineStatus === 'waiting'; 
+      let interval: any = null;
+
+      if (shouldPoll) {
+          interval = setInterval(async () => {
+              const { data: g, error } = await supabase.from('games').select('status, player_o, player_x').eq('id', gameId).single();
+              
+              if (error) {
+                  console.error('[Polling] Error fetching game:', error);
+                  return;
+              }
+
+               // Check if we need to update local state
+               // 1. Status changed in DB
+               // 2. Opponent joined (player_o set) but we barely noticed
+               // 3. Status is waiting in DB but player_o is there -> force playing (fix stuck state)
+               const dbStatus = g.status;
+               const hasOpponent = !!g.player_o;
+               
+               let newStatus = dbStatus;
+               if (dbStatus === 'waiting' && hasOpponent) {
+                   console.log('[Polling] Found opponent but status waiting. Forcing playing.');
+                   newStatus = 'playing';
+                   // Optionally fix DB?
+                   supabase.from('games').update({ status: 'playing' }).eq('id', gameId).then();
+               }
+
+               if (g && (newStatus !== onlineStatusRef.current || (g.player_o && !playerOProfileRef.current))) {
+                   console.log(`[Polling] Detected change. Status: ${newStatus}, Opponent: ${g.player_o}`);
+                   setOnlineStatus(newStatus);
+                   if (g.player_o) fetchGameProfiles(user.id === g.player_x ? user.id : g.player_x, g.player_o);
+               }
+          }, 2000);
+      }
+
+      // App Foreground listener
+      const subscription = AppState.addEventListener('change', async (nextAppState) => {
+          if (nextAppState === 'active') {
+               console.log('[AppState] App came to foreground, refreshing game...');
+               const { data: g } = await supabase.from('games').select('*').eq('id', gameId).single();
+               if (g) {
+                    setBoard(g.board);
+                    setTurn(g.turn);
+                    setWinner(g.winner);
+                    setOnlineStatus(g.status);
+                    setScore({ 
+                        player: g.player_x === user.id ? g.score_x : g.score_o, 
+                        opponent: g.player_x === user.id ? g.score_o : g.score_x 
+                    });
+                    
+                    // Re-sync comments/reactions logic if needed
+                    fetchGameProfiles(g.player_x, g.player_o);
+               }
+          }
+      });
+
+      return () => {
+          if (interval) clearInterval(interval);
+          subscription.remove();
+      };
+  }, [mode, gameId, user, onlineStatus, fetchGameProfiles]);
+
   // ─── Online: Realtime Listener & Presence ───
   const confirmLeave = useCallback((onConfirm: () => void) => {
     if (mode !== 'online' || !gameId) {
@@ -365,8 +462,6 @@ export default function GameRoute() {
             isLeavingRef.current = true;
             const hasWinner = winnerRef.current;
             
-            // Only update to abandoned if the game wasn't finished
-            // This preserves the 'finished' status for win/loss/draw in history
             if (!hasWinner) {
               await supabase.from('games').update({ status: 'abandoned' }).eq('id', gameId);
             }
@@ -385,7 +480,15 @@ export default function GameRoute() {
         if (!gameId || isLeavingRef.current) return;
 
         const status = onlineStatusRef.current;
-        const isActive = status === 'playing' || status === 'finished' || (status && status.startsWith('rematch_'));
+        
+        // If the game is already finished, allow immediate leave but notify opponent
+        if (status === 'finished') {
+            isLeavingRef.current = true;
+            supabase.from('games').update({ status: 'opponent_left' }).eq('id', gameId).then();
+            return;
+        }
+
+        const isActive = status === 'playing' || (status && status.startsWith('rematch_'));
 
         if (!isActive) return;
 
@@ -393,104 +496,201 @@ export default function GameRoute() {
         confirmLeave(() => navigation.dispatch(e.data.action));
     });
 
-    const channel = supabase.channel(`game:${gameId}`)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'games', filter: `id=eq.${gameId}` }, (payload) => {
-        const g = payload.new;
-        
-        // If status became abandoned, leave
-        if (g.status === 'abandoned') {
-             showModal({
-                 title: 'Opponent Left',
-                 description: 'Your opponent has left the game.',
-                 icon: <UserIcon size={40} color={colors.subtext} />,
-                  actions: [{ text: 'Go Home', onPress: async () => {
-                       hideModal();
-                       router.replace('/');
-                  }}],
-                  onDismiss: async () => {
-                       router.replace('/');
-                  }
-             });
-             return;
-        }
+    return () => removeListener();
+  }, [gameId, mode, navigation, confirmLeave]);
 
-        setBoard(g.board);
-        setTurn(g.turn);
-        setWinner(g.winner);
-        setOnlineStatus(g.status);
-        
-        // Sync score
-        if (user) {
-            setScore({
-               player: g.player_x === user.id ? g.score_x : g.score_o,
-               opponent: g.player_x === user.id ? g.score_o : g.score_x
-            });
-        }
-        
-        // If P2 joined, fetch their profile
-        if (g.player_o && !playerOProfileRef.current) {
-            fetchProfile(g.player_o).then(setPlayerOProfile);
-        }
-      })
-      .on('presence', { event: 'sync' }, () => {
-          const state = channel.presenceState();
-          
-          // Better presence counting: count unique user_ids
-          const entries = Object.values(state).flat() as any[];
-          const uniqueUserIds = new Set(entries.map(e => e.user_id).filter(Boolean));
-          const presentUsersCount = uniqueUserIds.size;
-          
-          const isOpponentPresent = entries.some(e => e.user_id !== user?.id);
+  const handlersRef = React.useRef({
+      showModal,
+      hideModal,
+      router,
+      navigation,
+      colors,
+      myMark,
+      user,
+      confirmLeave,
+      fetchProfile
+  });
 
-          if (!isOpponentPresent && (onlineStatusRef.current === 'playing' || onlineStatusRef.current === 'finished') && !isGracePeriodRef.current) {
-              // Debounce disconnect: wait 3 seconds before showing overlay
-              if (!disconnectTimeoutRef.current) {
-                disconnectTimeoutRef.current = setTimeout(() => {
-                    console.log('Opponent missing confirmed!');
-                    wasMissingOpponentRef.current = true;
-                    setOpponentConnected(false);
-                    disconnectTimeoutRef.current = null;
-                }, 3000);
-              }
-          } else if (isOpponentPresent || presentUsersCount >= 2) {
-              // Cancel disconnect timeout if opponent is found
-              if (disconnectTimeoutRef.current) {
-                clearTimeout(disconnectTimeoutRef.current);
-                disconnectTimeoutRef.current = null;
-              }
+    useEffect(() => {
+        handlersRef.current = {
+            showModal,
+            hideModal,
+            router,
+            navigation,
+            colors,
+            myMark,
+            user,
+            confirmLeave,
+            fetchProfile
+        };
+    }, [showModal, hideModal, router, navigation, colors, myMark, user, confirmLeave, fetchProfile]);
+
+    useEffect(() => {
+        if (mode !== 'online' || !gameId) return;
+
+        console.log(`[Realtime] Subscribing to game:${gameId}`);
+        
+        const channel = supabase.channel(`game:${gameId}`, {
+            config: {
+                presence: { key: user?.id },
+            }
+        })
+        .on('postgres_changes', { 
+            event: 'UPDATE', 
+            schema: 'public', 
+            table: 'games', 
+            filter: `id=eq.${gameId}` 
+        }, (payload) => {
+            const g = payload.new;
+            console.log('[Realtime] Received update:', g.status);
+            
+            // If status became abandoned, leave
+            if (g.status === 'abandoned') {
+                 handlersRef.current.showModal({
+                     title: 'Opponent Left',
+                     description: 'Your opponent has left the game.',
+                     icon: <UserIcon size={40} color={handlersRef.current.colors.subtext} />,
+                      actions: [{ text: 'Go Home', onPress: async () => {
+                           handlersRef.current.hideModal();
+                           handlersRef.current.router.replace('/');
+                      }}],
+                      onDismiss: async () => {
+                           handlersRef.current.router.replace('/');
+                      }
+                 });
+                 return;
+            }
+
+            if (g.status === 'opponent_left') {
+                const xScore = g.score_x || 0;
+                const oScore = g.score_o || 0;
+                
+                const curMyMark = myMarkRef.current;
+                const myScore = curMyMark === 'X' ? xScore : oScore;
+                const oppScore = curMyMark === 'X' ? oScore : xScore;
+                
+                const isWinner = myScore > oppScore;
+                const isDraw = myScore === oppScore;
+                
+                handlersRef.current.showModal({
+                    title: isWinner ? 'Session Victory!' : 'Session Ended',
+                    description: isWinner 
+                        ? `You won the session ${myScore} - ${oppScore}! Your opponent has left.`
+                        : isDraw 
+                            ? `The session ended in a draw (${myScore} - ${oppScore}). Your opponent has left.`
+                            : `Final session score: ${myScore} - ${oppScore}. Your opponent has left.`,
+                    icon: isWinner ? <Trophy size={40} color="#eab308" /> : <UserIcon size={40} color={handlersRef.current.colors.subtext} />,
+                    actions: [{ 
+                        text: 'Go Home', 
+                        variant: 'primary',
+                        onPress: () => {
+                            handlersRef.current.hideModal();
+                            handlersRef.current.router.replace('/');
+                        }
+                    }],
+                    onDismiss: () => handlersRef.current.router.replace('/')
+                });
+                return;
+            }
+
+            setBoard(g.board);
+            setTurn(g.turn);
+            setWinner(g.winner);
+            
+            // Force status update if it changed
+            if (g.status !== onlineStatusRef.current) {
+                console.log(`[Realtime] Status changed from ${onlineStatusRef.current} to ${g.status}`);
+                setOnlineStatus(g.status);
+            }
+            
+            // Sync score
+            if (userRef.current) {
+                setScore({
+                   player: g.player_x === userRef.current.id ? g.score_x : g.score_o,
+                   opponent: g.player_x === userRef.current.id ? g.score_o : g.score_x
+                });
+            }
+            
+            // If P2 joined, fetch their profile
+            if (g.player_o && !playerOProfileRef.current) {
+                handlersRef.current.fetchProfile(g.player_o).then(setPlayerOProfile);
+            }
+
+            // Sync Reactions (Handle legacy x/o columns + new last_reaction)
+            if (g.last_reaction) {
+                const { mark, emoji, timestamp } = g.last_reaction;
+                const isRecent = Date.now() - (timestamp || 0) < 3000;
+                
+                if (isRecent) {
+                    if (mark === 'X') {
+                         setReactionX(emoji);
+                         if (reactionTimeoutXRef.current) clearTimeout(reactionTimeoutXRef.current);
+                         reactionTimeoutXRef.current = setTimeout(() => setReactionX(null), 3000);
+                    } else if (mark === 'O') {
+                         setReactionO(emoji);
+                         if (reactionTimeoutORef.current) clearTimeout(reactionTimeoutORef.current);
+                         reactionTimeoutORef.current = setTimeout(() => setReactionO(null), 3000);
+                    }
+                }
+            }
+        })
+        .on('presence', { event: 'sync' }, () => {
+              const state = channel.presenceState();
+              const entries = Object.values(state).flat() as any[];
+              const uniqueUserIds = new Set(entries.map(e => e.user_id).filter(Boolean));
+              const presentUsersCount = uniqueUserIds.size;
               
-              if (wasMissingOpponentRef.current) {
-                  // Opponent reconnected
-                  wasMissingOpponentRef.current = false;
-                  showModal({
-                      title: 'Opponent Reconnected',
-                      description: 'Your opponent is back. Do you want to continue?',
-                      icon: <UserIcon size={40} color={colors.accent} />,
-                      actions: [
-                          { text: 'No', variant: 'secondary', onPress: () => {
-                              supabase.from('games').update({ status: 'abandoned' }).eq('id', gameId);
-                              if (navigation.canGoBack()) router.back(); else router.replace('/');
-                              hideModal();
-                          }},
-                          { text: 'Yes', variant: 'primary', onPress: () => hideModal() }
-                      ]
-                  });
-              }
-              setOpponentConnected(true);
-          }
-      })
-      .subscribe(async (status) => {
-          if (status === 'SUBSCRIBED') {
-              await channel.track({ online_at: new Date().toISOString(), user_id: user?.id });
-          }
-      });
+              const isOpponentPresent = entries.some(e => e.user_id !== userRef.current?.id);
 
-    return () => { 
-        supabase.removeChannel(channel);
-        removeListener();
-        if (disconnectTimeoutRef.current) clearTimeout(disconnectTimeoutRef.current);
-    };
-  }, [gameId, mode, fetchProfile, navigation, user, colors, router, showModal, hideModal, confirmLeave]);
+              if (!isOpponentPresent && (onlineStatusRef.current === 'playing' || onlineStatusRef.current === 'finished') && !isGracePeriodRef.current) {
+                  if (!disconnectTimeoutRef.current) {
+                    disconnectTimeoutRef.current = setTimeout(() => {
+                        console.log('[Presence] Opponent confirmed missing');
+                        wasMissingOpponentRef.current = true;
+                        setOpponentConnected(false);
+                        disconnectTimeoutRef.current = null;
+                    }, 3000);
+                  }
+              } else if (isOpponentPresent || presentUsersCount >= 2) {
+                  if (disconnectTimeoutRef.current) {
+                    clearTimeout(disconnectTimeoutRef.current);
+                    disconnectTimeoutRef.current = null;
+                  }
+                  
+                  if (wasMissingOpponentRef.current) {
+                      wasMissingOpponentRef.current = false;
+                      handlersRef.current.showModal({
+                          title: 'Opponent Reconnected',
+                          description: 'Your opponent is back. Do you want to continue?',
+                          icon: <UserIcon size={40} color={handlersRef.current.colors.accent} />,
+                          actions: [
+                              { text: 'No', variant: 'secondary', onPress: () => {
+                                  supabase.from('games').update({ status: 'abandoned' }).eq('id', gameId);
+                                  if (handlersRef.current.navigation.canGoBack()) handlersRef.current.router.back(); else handlersRef.current.router.replace('/');
+                                  handlersRef.current.hideModal();
+                              }},
+                              { text: 'Yes', variant: 'primary', onPress: () => handlersRef.current.hideModal() }
+                          ]
+                      });
+                  }
+                  setOpponentConnected(true);
+              }
+        })
+        .subscribe(async (status) => {
+            console.log(`[Realtime] Subscription status: ${status}`);
+            if (status === 'SUBSCRIBED') {
+                await channel.track({ online_at: new Date().toISOString(), user_id: userRef.current?.id });
+            } else if (status === 'CHANNEL_ERROR') {
+                console.error('[Realtime] Channel error - connection lost');
+            }
+        });
+
+        return () => {
+            console.log(`[Realtime] Cleaning up game:${gameId}`);
+            supabase.removeChannel(channel);
+            if (disconnectTimeoutRef.current) clearTimeout(disconnectTimeoutRef.current);
+        };
+    }, [gameId, mode, user?.id]);
 
   // ─── Opponent Disconnect Timeout ───
   // Removed strict timeout to allow reconnection. 
@@ -500,9 +700,25 @@ export default function GameRoute() {
   // ─── Online: Rematch Logic ───
   const requestRematch = async () => {
       if (!myMark || !gameId) return;
-      setLoading(true);
       const newStatus = `rematch_requested_${myMark}`;
-      await supabase.from('games').update({ status: newStatus }).eq('id', gameId);
+      console.log(`[Rematch] Attempting to set status to ${newStatus} for game ${gameId}`);
+      
+      const { error } = await supabase.from('games').update({ status: newStatus }).eq('id', gameId);
+      
+      if (error) {
+          console.error('[Rematch] Failed to request rematch:', error);
+          showToast({
+              type: 'error',
+              title: 'Request Failed',
+              message: 'Could not send rematch request.'
+          });
+      } else {
+          showToast({
+              type: 'success',
+              title: 'Rematch Requested',
+              message: 'Waiting for opponent to accept...'
+          });
+      }
   };
 
   const acceptRematch = useCallback(async () => {
@@ -553,16 +769,40 @@ export default function GameRoute() {
   useEffect(() => {
      if (mode !== 'online' || !onlineStatus) return;
 
-     if (onlineStatus.startsWith('rematch_requested_') && onlineStatus !== `rematch_requested_${myMark}`) {
-         showModal({
-             title: 'Rematch Request',
-             description: 'Opponent wants to play again.',
-             icon: <RefreshCw size={40} color={colors.accent} />,
-             actions: [
-                 { text: 'Reject', onPress: rejectRematch, variant: 'secondary' },
-                 { text: 'Accept', onPress: acceptRematch, variant: 'primary' }
-             ]
-         });
+     if (onlineStatus.startsWith('rematch_requested_')) {
+         const isMe = onlineStatus === `rematch_requested_${myMark}`;
+         
+         if (isMe) {
+             showModal({
+                 title: 'Rematch Offered',
+                 description: 'Waiting for your opponent to accept...',
+                 icon: <ActivityIndicator size="large" color={colors.accent} />,
+                 actions: [
+                     { 
+                         text: 'Cancel', 
+                         variant: 'secondary', 
+                         onPress: async () => {
+                             await supabase.from('games').update({ status: 'finished' }).eq('id', gameId);
+                             hideModal();
+                         } 
+                     }
+                 ],
+                 onDismiss: () => {}
+             });
+         } else if (rematchNotifiedRef.current !== onlineStatus) {
+              rematchNotifiedRef.current = onlineStatus;
+              showModal({
+                  title: 'Rematch Request',
+                  description: 'Opponent wants to play again!',
+                  icon: <RefreshCw size={40} color={colors.accent} />,
+                  actions: [
+                      { text: 'Reject', onPress: rejectRematch, variant: 'secondary' },
+                      { text: 'Accept', onPress: acceptRematch, variant: 'primary' }
+                  ]
+              });
+         }
+     } else {
+         rematchNotifiedRef.current = null;
      }
      
      if (onlineStatus === 'rematch_rejected') {
@@ -583,7 +823,7 @@ export default function GameRoute() {
          if (loading) setLoading(false);
          hideModal();
      }
-  }, [onlineStatus, mode, myMark, loading, acceptRematch, rejectRematch, colors, navigation, showModal, hideModal, router]);
+  }, [onlineStatus, mode, myMark, loading, acceptRematch, rejectRematch, colors, navigation, showModal, hideModal, router, gameId, showToast]);
 
   const resetBoard = () => {
     setBoard(Array(9).fill(null));
@@ -603,6 +843,14 @@ export default function GameRoute() {
 
   const handleHome = async () => {
     if (mode === 'online' && gameId && !isLeavingRef.current) {
+        if (winnerRef.current) {
+            isLeavingRef.current = true;
+            // Notify opponent that we're leaving after a finished game
+            await supabase.from('games').update({ status: 'opponent_left' }).eq('id', gameId);
+            if (navigation.canGoBack()) router.back(); else router.replace('/');
+            return;
+        }
+
         confirmLeave(() => {
             if (navigation.canGoBack()) router.back(); else router.replace('/');
         });
@@ -649,14 +897,45 @@ export default function GameRoute() {
       }
   };
 
-  if (loading) {
+  const handleReaction = async (emoji: string) => {
+      if (!gameId || !myMark) return;
+      
+      // Optimistic update
+      if (myMark === 'X') {
+          setReactionX(emoji);
+          if (reactionTimeoutXRef.current) clearTimeout(reactionTimeoutXRef.current);
+          reactionTimeoutXRef.current = setTimeout(() => setReactionX(null), 3000);
+      } else {
+          setReactionO(emoji);
+          if (reactionTimeoutORef.current) clearTimeout(reactionTimeoutORef.current);
+          reactionTimeoutORef.current = setTimeout(() => setReactionO(null), 3000);
+      }
+      
+      // Update DB with event
+      await supabase.from('games').update({ 
+          last_reaction: { mark: myMark, emoji, timestamp: Date.now() } 
+      }).eq('id', gameId);
+  };
+
+  if (loading || authLoading) {
     return (
       <ThemedView themed safe style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={colors.accent} />
-        <ThemedText size="lg" weight="bold" colorType="text" style={styles.loadingText}>Joining Game...</ThemedText>
+        <ThemedText size="lg" weight="bold" colorType="text" style={styles.loadingText}>
+            {authLoading ? "Authenticating..." : "Joining Game..."}
+        </ThemedText>
         <Button title='Cancel' variant='secondary' onPress={() => handleHome()} />
       </ThemedView>
     );
+  }
+
+  if (!user && mode === 'online') {
+      // Fallback if the effect hasn't redirected yet or strictly render nothing
+      return (
+        <ThemedView themed safe style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={colors.accent} />
+        </ThemedView>
+      );
   }
 
 
@@ -680,13 +959,15 @@ export default function GameRoute() {
         playerXProfile={playerXProfile}
         playerOProfile={playerOProfile}
         onProfilePress={handleProfilePress}
+        reactionX={reactionX}
+        reactionO={reactionO}
+        onReaction={handleReaction}
       />
 
       <BottomSheet visible={showRules} onClose={() => setShowRules(false)}>
-        <ThemedView style={[styles.sheetHeader, { borderBottomColor: colors.border }]}>
-          <ThemedText type="defaultSemiBold" size="lg" colorType="text" weight="bold">Game Rules</ThemedText>
-          <Button variant="secondary" size='sm' type='icon' onPress={() => setShowRules(false)} icon={<X size={20} color={colors.text} />} />
-        </ThemedView>
+        <View style={{ padding: 24, paddingBottom: 0 }}>
+             <SheetHeader title="Game Rules" onClose={() => setShowRules(false)} />
+        </View>
         <ThemedView scroll style={styles.sheetContent} showsVerticalScrollIndicator={false}>
           <RuleCard
             icon={<Trophy size={24} color="#eab308" />}
@@ -718,26 +999,59 @@ export default function GameRoute() {
 
       {/* Opponent Disconnected Overlay */}
       {!opponentConnected && (onlineStatus === 'playing' || onlineStatus === 'finished') && !winner && (
-          <ThemedView style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.7)', alignItems: 'center', justifyContent: 'center', gap: 16, zIndex: 100 }]}>
-               <ActivityIndicator size="large" color={colors.accent} style={{ marginBottom: 20 }} />
-               <ThemedText type="subtitle" size="xl" colorType="white">Waiting for opponent...</ThemedText>
-          <ThemedText type="label" colorType="subtext" size="md">They may have lost connection.</ThemedText>
-          <Button title='Back to Home' variant='secondary' size='md' onPress={()=> router.replace("/")}/>
+          <ThemedView blur intensity={80} tint={isDark ? 'dark' : 'light'} style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', zIndex: 100 }]}>
+               <Animated.View entering={ZoomIn.duration(400)} exiting={FadeOut} style={{ alignItems: 'center', gap: 20 }}>
+                    <View style={{ 
+                        width: 80, 
+                        height: 80, 
+                        borderRadius: 40, 
+                        backgroundColor: `${colors.accent}22`,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderWidth: 2,
+                        borderColor: colors.accent
+                    }}>
+                        <WifiOff size={40} color={colors.accent} />
+                    </View>
+                    <View style={{ alignItems: 'center', gap: 8 }}>
+                        <ThemedText type="subtitle" size="2xl" weight="black" colorType="text">Reconnecting...</ThemedText>
+                        <ThemedText type="label" colorType="subtext" size="md" align="center">Opponent is having connection issues.</ThemedText>
+                    </View>
+                    <ActivityIndicator size="small" color={colors.accent} />
+                    <Button title='Back to Home' variant='secondary' size='md' style={{ marginTop: 20 }} onPress={()=> router.replace("/")}/>
+               </Animated.View>
           </ThemedView>
       )}
 
       {/* Opponent Left Overlay for Finished Games */}
       {!opponentConnected && onlineStatus === 'finished' && winner && (
-          <ThemedView style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.8)', alignItems: 'center', justifyContent: 'center', gap: 16, zIndex: 110 }]}>
-               <UserIcon size={64} color={colors.subtext} style={{ marginBottom: 10 }} />
-               <ThemedText type="subtitle" size="xl" colorType="white">Opponent Left</ThemedText>
-               <ThemedText type="label" colorType="subtext" size="md" align="center" style={{ paddingHorizontal: 40 }}>
-                  Your opponent has left the room. You can go back to the home screen or view the final board.
-               </ThemedText>
-               <View style={{ flexDirection: 'row', gap: 12, marginTop: 10 }}>
-                  <Button title='Close' variant='secondary' size='md' onPress={()=> setOpponentConnected(true)}/>
-                  <Button title='Go Home' variant='primary' size='md' onPress={()=> router.replace("/")}/>
-               </View>
+          <ThemedView blur intensity={100} tint={isDark ? 'dark' : 'light'} style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', zIndex: 110 }]}>
+               <Animated.View entering={FadeInDown.springify()} style={[styles.departedCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                    <View style={[styles.departedIconContainer, { backgroundColor: `${colors.error}15` }]}>
+                         <UserX size={48} color={colors.error} />
+                    </View>
+                    
+                    <ThemedText size="2xl" weight="black" align="center">Opponent Left</ThemedText>
+                    
+                    <ThemedText colorType="subtext" align="center" style={{ lineHeight: 22 }}>
+                        Your opponent has left the room. You can go back home or close this to view the final board.
+                    </ThemedText>
+                    
+                    <View style={styles.departedActions}>
+                        <Button 
+                            title='View Board' 
+                            variant='secondary' 
+                            style={{ flex: 1 }}
+                            onPress={()=> setOpponentConnected(true)}
+                        />
+                        <Button 
+                            title='Go Home' 
+                            variant='primary' 
+                            style={{ flex: 1 }}
+                            onPress={()=> router.replace("/")}
+                        />
+                    </View>
+               </Animated.View>
           </ThemedView>
       )}
     </ThemedView>
@@ -771,4 +1085,35 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 20,
   },
+  departedCard: {
+    width: '85%',
+    maxWidth: 340,
+    padding: 24,
+    borderRadius: 32,
+    borderWidth: 1,
+    alignItems: 'center',
+    gap: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  departedIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  departedActions: {
+    flexDirection: 'row',
+    width: '100%',
+    gap: 12,
+    marginTop: 8,
+  },
 });
+
+
+

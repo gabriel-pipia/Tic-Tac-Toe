@@ -1,8 +1,9 @@
 
 import { useTheme } from '@/context/ThemeContext';
 import React from 'react';
-import { StyleProp, TextStyle, TouchableOpacity, TouchableOpacityProps, View, ViewStyle } from 'react-native';
+import { StyleProp, TextStyle, TouchableOpacity, TouchableOpacityProps, ViewStyle } from 'react-native';
 import { ThemedText } from './Text';
+import { ThemedView } from './View';
 
 interface ButtonProps extends TouchableOpacityProps {
   title?: string;
@@ -10,11 +11,11 @@ interface ButtonProps extends TouchableOpacityProps {
   size?: 'sm' | 'md' | 'lg';
   type?: 'text' | 'icon';
   icon?: React.ReactNode;
-  className?: string;
   style?: StyleProp<ViewStyle>;
   textStyle?: StyleProp<TextStyle>;
-  textClassName?: string;
   children?: React.ReactNode;
+  weight?: 'normal' | 'medium' | 'bold' | 'black';
+  loading?: boolean;
 }
 
 export default function Button({ 
@@ -23,12 +24,12 @@ export default function Button({
   type = 'text',
   size = 'md', 
   icon,
-  className,
   style,
   textStyle,
-  textClassName,
   disabled,
   children,
+  weight = 'bold', 
+  loading = false,
   ...props 
 }: ButtonProps) {
   const { colors, isDark } = useTheme();
@@ -63,15 +64,15 @@ export default function Button({
       borderBottomWidth = 4;
       break;
     case 'white':
-      backgroundColor = '#FFFFFF';
-      borderColor = '#E2E8F0';
-      textColor = '#0F172A';
+      backgroundColor = colors.white;
+      borderColor = colors.border;
+      textColor = colors.black;
       borderBottomWidth = 4;
       break;
     case 'danger':
       backgroundColor = colors.error;
       borderColor = 'rgba(0,0,0,0.2)';
-      textColor = '#FFFFFF';
+      textColor = colors.white;
       borderBottomWidth = 4;
       break;
     case 'outline':
@@ -111,23 +112,20 @@ export default function Button({
       {...props}
     >
       {children ? children : (
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            {icon && <View style={{ marginRight: type === 'text' ? 12 : 0 }}>{icon}</View>}
-            <ThemedText 
-                style={[
-                  {
-                    fontSize: 18,
-                    fontWeight: 'bold',
-                    textAlign: 'center',
-                    color: textColor,
-                  },
-                  textStyle
-                ]}
-                className={textClassName}
-            >
-                {title}
-            </ThemedText>
-        </View>
+        <ThemedView style={{ flexDirection: 'row', alignItems: 'center' }}>
+            {icon && <ThemedView style={{ marginRight: type === 'text' ? 12 : 0 }}>{icon}</ThemedView>}
+            <ThemedText
+          style={[
+            { color: textColor, fontWeight: weight },
+            size === 'lg' && { fontSize: 24 },
+            size === 'md' && { fontSize: 18 },
+            size === 'sm' && { fontSize: 14 },
+            textStyle
+          ]}
+      >
+        {title}
+      </ThemedText>
+        </ThemedView>
       )}
     </TouchableOpacity>
   );

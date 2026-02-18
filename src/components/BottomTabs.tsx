@@ -1,17 +1,22 @@
-import { Layout } from '@/constants/Layout';
+
+import { ThemedView } from '@/components/ui/View';
 import { useTheme } from '@/context/ThemeContext';
+import { Layout } from '@/lib/constants/Layout';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Gamepad2, ScanLine, User, X } from 'lucide-react-native';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
-import Animated, { useAnimatedStyle, withSpring } from 'react-native-reanimated';
-import { ThemedView } from './View';
+import { StyleSheet, TouchableOpacity } from 'react-native';
+import Animated, { Easing, useAnimatedStyle, withTiming } from 'react-native-reanimated';
+
+const ANIM_DURATION = 150;
+const ANIM_EASING = Easing.bezier(0.33, 1, 0.68, 1); // Premium ease-out expo-like curve
+const ICON_SPRING_EASING = Easing.out(Easing.back(1.5));
 
 function AnimatedTabBackground({ isFocused, colors }: any) {
   const animatedStyle = useAnimatedStyle(() => {
     return {
-      opacity: withSpring(isFocused ? 1 : 0, { damping: 20, stiffness: 150 }),
+      opacity: withTiming(isFocused ? 1 : 0, { duration: ANIM_DURATION, easing: ANIM_EASING }),
       transform: [
-        { scale: withSpring(isFocused ? 1 : 0.8, { damping: 15, stiffness: 120 }) }
+        { scale: withTiming(isFocused ? 1 : 0.8, { duration: ANIM_DURATION, easing: ANIM_EASING }) }
       ]
     };
   });
@@ -35,8 +40,8 @@ function AnimatedTabIcon({ IconComponent, isFocused, size, color, strokeWidth, s
   const animatedStyle = useAnimatedStyle(() => {
     return {
       transform: [
-        { scale: withSpring(isFocused ? 1.1 : 1, { damping: 10, stiffness: 100 }) },
-        { rotate: shouldRotate ? withSpring(isFocused ? '90deg' : '0deg', { damping: 15, stiffness: 200 }) : '0deg' }
+        { scale: withTiming(isFocused ? 1.15 : 1, { duration: ANIM_DURATION, easing: ICON_SPRING_EASING }) },
+        { rotate: shouldRotate ? withTiming(isFocused ? '90deg' : '0deg', { duration: ANIM_DURATION, easing: ICON_SPRING_EASING }) : '0deg' }
       ],
     };
   });
@@ -73,7 +78,7 @@ export default function BottomTabs({ state, descriptors, navigation }: BottomTab
       }}
     >
 
-        <View className="flex-row items-stretch justify-between w-full h-full gap-4">
+        <ThemedView style={styles.tabContainer}>
             {state.routes.map((route, index) => {
               const { options } = descriptors[route.key];
               const isFocused = state.index === index;
@@ -95,86 +100,65 @@ export default function BottomTabs({ state, descriptors, navigation }: BottomTab
                 }
               };
 
-              const onLongPress = () => {
-                navigation.emit({
-                  type: 'tabLongPress',
-                  target: route.key,
-                });
-              };
-
-              // Icon Logic
+              // Map route names to icons
               let IconComponent = Gamepad2;
-              if (route.name === 'scan') IconComponent = isFocused ? X : ScanLine;
-              if (route.name === 'profile') IconComponent = User;
-              
-              const size = route.name === 'scan' ? 32 : 30;
-              const color = isFocused ? colors.accent : colors.subtext;
-              const strokeWidth = isFocused ? 3 : 2;
+              let size = 26;
+              let strokeWidth = 2.5;
+              let shouldRotate = false;
+              let customColor = isFocused ? colors.accent : colors.subtext;
 
-              if (route.name === 'scan') {
-                return (
-                    <TouchableOpacity
-                      activeOpacity={0.9}
-                            key={route.key}
-                            accessibilityRole="button"
-                            accessibilityState={isFocused ? { selected: true } : {}}
-                            accessibilityLabel={options.tabBarAccessibilityLabel}
-                            testID={(options as any).tabBarTestID}
-                            onPress={onPress}
-                            onLongPress={onLongPress}
-                            style={{
-                              flex: 1,
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              borderRadius: Layout.borderRadius.full,
-                              backgroundColor: colors.accent,
-                              position: 'relative',
-                              overflow: 'hidden'
-                            }}
-                        >
-                    <AnimatedTabIcon 
-                      IconComponent={IconComponent} 
-                      isFocused={isFocused} 
-                      size={36} 
-                      color={colors.white} 
-                      strokeWidth={3} 
-                      shouldRotate={true}
-                    />
-                        </TouchableOpacity>
-                  )
+              if (route.name === 'index') IconComponent = Gamepad2;
+              else if (route.name === 'scan') {
+                  IconComponent = isFocused ? X : ScanLine;
+                  size = 28;
+                  shouldRotate = true;
+                  customColor = isFocused ? colors.error : colors.subtext; // Red X when open
               }
+              else if (route.name === 'profile') IconComponent = User;
 
               return (
                 <TouchableOpacity
-                  activeOpacity={0.9}
-                  key={route.key}
+                  key={index}
                   accessibilityRole="button"
                   accessibilityState={isFocused ? { selected: true } : {}}
                   accessibilityLabel={options.tabBarAccessibilityLabel}
-                  testID={(options as any).tabBarTestID}
                   onPress={onPress}
-                  onLongPress={onLongPress}
-                  style={{
-                    flex: 1,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    borderRadius: Layout.borderRadius.full,
-                    position: 'relative'
-                  }}
+                  style={styles.tabButton}
                 >
+                  
                   <AnimatedTabBackground isFocused={isFocused} colors={colors} />
+                  
                   <AnimatedTabIcon 
-                    IconComponent={IconComponent} 
-                    isFocused={isFocused} 
-                    size={size} 
-                    color={color} 
-                    strokeWidth={strokeWidth} 
-                    shouldRotate={false}
+                      IconComponent={IconComponent}
+                      isFocused={isFocused}
+                      size={size}
+                      color={customColor}
+                      strokeWidth={strokeWidth}
+                      shouldRotate={shouldRotate}
                   />
+
                 </TouchableOpacity>
               );
             })}
-        </View>
+        </ThemedView>
     </ThemedView>
   );
 }
+
+const styles = StyleSheet.create({
+  tabContainer: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    justifyContent: 'space-between',
+    width: '100%',
+    height: '100%',
+    gap: 16,
+  },
+  tabButton: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    borderRadius: 9999,
+  },
+});

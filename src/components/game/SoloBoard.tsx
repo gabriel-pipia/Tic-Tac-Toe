@@ -1,9 +1,9 @@
+import { ThemedText } from '@/components/ui/Text';
+import { ThemedView } from '@/components/ui/View';
 import { useTheme } from '@/context/ThemeContext';
-import { Player } from '@/utils/gameLogic';
+import { Player } from '@/types/game';
 import React from 'react';
 import { StyleSheet } from 'react-native';
-import { ThemedText } from '../Text';
-import { ThemedView } from '../View';
 import BoardGrid from './BoardGrid';
 
 interface SoloBoardProps {
@@ -56,6 +56,8 @@ export default function SoloBoard({ board, onPress, disabled, winner }: SoloBoar
       >
         <ThemedText
           type="label"
+          weight="normal"
+          size='md'
           style={{
             color: winner
               ? winner === 'X'

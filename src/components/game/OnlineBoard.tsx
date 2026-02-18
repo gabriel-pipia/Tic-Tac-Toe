@@ -1,10 +1,10 @@
+import { ThemedText } from '@/components/ui/Text';
+import { ThemedView } from '@/components/ui/View';
 import { useTheme } from '@/context/ThemeContext';
-import { Player } from '@/utils/gameLogic';
+import { Player } from '@/types/game';
 import React from 'react';
 import { ActivityIndicator, StyleSheet } from 'react-native';
 import Animated, { useAnimatedStyle, withTiming } from 'react-native-reanimated';
-import { ThemedText } from '../Text';
-import { ThemedView } from '../View';
 import BoardGrid from './BoardGrid';
 
 interface OnlineBoardProps {

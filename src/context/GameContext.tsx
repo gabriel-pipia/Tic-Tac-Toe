@@ -1,19 +1,10 @@
-import { supabase } from '@/utils/supabase';
+import { supabase } from '@/lib/supabase/client';
+import { usePathname, useRouter, useSegments } from 'expo-router';
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useAuth } from './AuthContext';
 import { useUI } from './UIContext';
 
-// ─── Types ───
-export type LiveGame = {
-  id: string;
-  player_x: string;
-  player_o: string | null;
-  status: string;
-  winner: string | null;
-  turn: string;
-  board: (string | null)[];
-  created_at: string;
-};
+import { LiveGame } from '@/types/game';
 
 type GameContextType = {
   /** All active games involving the current user */
@@ -38,6 +29,20 @@ export const useGame = () => useContext(GameContext);
 export const GameProvider = ({ children }: { children: React.ReactNode }) => {
   const { user } = useAuth();
   const { showToast } = useUI();
+  const segments = useSegments();
+  const router = useRouter();
+  const segmentsRef = useRef(segments);
+  const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
+
+  useEffect(() => {
+    segmentsRef.current = segments;
+  }, [segments]);
+
+  useEffect(() => {
+    pathnameRef.current = pathname;
+  }, [pathname]);
+
   const [liveGames, setLiveGames] = useState<LiveGame[]>([]);
   const [dismissedInvites, setDismissedInvites] = useState<Set<string>>(new Set());
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
@@ -82,21 +87,35 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
 
     const channel = supabase
       .channel(`user_games_${user.id}`)
-      // Listen for games where user is player_x
+      // Player X: Insert/Update
       .on('postgres_changes', {
-        event: '*',
+        event: 'INSERT',
         schema: 'public',
         table: 'games',
         filter: `player_x=eq.${user.id}`,
       }, (payload) => handleGameChange(payload))
-      // Listen for games where user is player_o
       .on('postgres_changes', {
-        event: '*',
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'games',
+        filter: `player_x=eq.${user.id}`,
+      }, (payload) => handleGameChange(payload))
+      // Player O: Insert/Update
+      .on('postgres_changes', {
+        event: 'INSERT',
         schema: 'public',
         table: 'games',
         filter: `player_o=eq.${user.id}`,
       }, (payload) => handleGameChange(payload))
-      .subscribe();
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'games',
+        filter: `player_o=eq.${user.id}`,
+      }, (payload) => handleGameChange(payload))
+      .subscribe((status) => {
+          console.log(`[GameContext] Realtime subscription status: ${status}`);
+      });
 
     channelRef.current = channel;
 
@@ -109,6 +128,9 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
 
   const handleGameChange = useCallback((payload: any) => {
     const { eventType, new: newGame, old: oldGame } = payload;
+    const user_id = user?.id;
+
+    console.log(`[GameContext] Realtime ${eventType} for game ${newGame?.id || oldGame?.id}. Status: ${newGame?.status}`);
 
     if (eventType === 'INSERT') {
       // New game involving the user
@@ -119,11 +141,12 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
       previousGamesRef.current.set(newGame.id, newGame);
 
       // If someone else created a game and added the user as player_o
-      if (newGame.player_o === user?.id && newGame.player_x !== user?.id) {
+      if (newGame.player_o === user_id && newGame.player_x !== user_id) {
         showToast({
           type: 'info',
-          title: 'Game Invite',
+          title: 'Game Invite 🎮',
           message: 'Someone invited you to a game!',
+          onPress: () => router.push(`/game/${newGame.id}`)
         });
       }
     } else if (eventType === 'UPDATE') {
@@ -136,17 +159,16 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
       previousGamesRef.current.set(newGame.id, newGame);
 
       // Detect: opponent joined your hosted game
-      if (prevGame && !prevGame.player_o && newGame.player_o && newGame.player_x === user?.id) {
+      if (prevGame && !prevGame.player_o && newGame.player_o && newGame.player_x === user_id) {
         showToast({
           type: 'success',
-          title: 'Opponent Joined!',
-          message: 'Your opponent has connected. Game is starting!',
+          title: 'Opponent Joined! ⚔️',
+          message: 'Your opponent connected. Game is starting!',
         });
       }
 
       // Detect: game became abandoned (opponent left)
       if (prevGame && prevGame.status === 'playing' && newGame.status === 'abandoned') {
-        // Remove from live games
         setLiveGames(prev => prev.filter(g => g.id !== newGame.id));
         previousGamesRef.current.delete(newGame.id);
       }
@@ -158,22 +180,45 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
       }
 
       // Detect: rematch request from opponent
-      if (newGame.status?.startsWith('rematch_requested_') && prevGame?.status !== newGame.status) {
+      // g.status is e.g. "rematch_requested_X"
+      const isRematchRequest = newGame.status?.startsWith('rematch_requested_');
+      const statusChanged = prevGame?.status !== newGame.status;
+
+      if (isRematchRequest && statusChanged) {
         const requestedByMark = newGame.status.replace('rematch_requested_', '');
-        const myMark = newGame.player_x === user?.id ? 'X' : 'O';
+        const myMark = newGame.player_x === user_id ? 'X' : 'O';
+        
+        console.log(`[GameContext] Rematch detected. RequestedBy: ${requestedByMark}, MyMark: ${myMark}`);
+
         if (requestedByMark !== myMark) {
-          showToast({
-            type: 'info',
-            title: 'Rematch Requested',
-            message: 'Your opponent wants to play again!',
-          });
+          // Check if we are already in this game screen using Pathname (more robust)
+          const currentPath = pathnameRef.current;
+          const isCurrentGame = currentPath?.includes(newGame.id);
+
+          console.log(`[GameContext] Screen Check - pathname: ${currentPath}, target: ${newGame.id}, isCurrentGame: ${isCurrentGame}`);
+
+          if (!isCurrentGame) {
+             console.log(`[GameContext] Triggering rematch toast for game ${newGame.id}`);
+             showToast({
+               type: 'info',
+               title: 'Rematch Requested! 🎮',
+               message: 'Your opponent wants to play again!',
+               duration: 8000,
+               onPress: () => {
+                   console.log(`[GameContext] Toast pressed, navigating to /game/${newGame.id}`);
+                   router.push(`/game/${newGame.id}`);
+               }
+             });
+          } else {
+             console.log(`[GameContext] Notification suppressed - user is already on game screen.`);
+          }
         }
       }
     } else if (eventType === 'DELETE') {
       setLiveGames(prev => prev.filter(g => g.id !== oldGame.id));
       previousGamesRef.current.delete(oldGame.id);
     }
-  }, [user, showToast]);
+  }, [user, showToast, router]);
 
   // Computed values
   const pendingInvites = liveGames.filter(g =>

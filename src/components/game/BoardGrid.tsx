@@ -1,13 +1,14 @@
+import { ThemedView } from '@/components/ui/View';
 import { useTheme } from '@/context/ThemeContext';
-import { getWinningLine } from '@/utils/gameLogic';
+import { getWinningLine } from '@/lib/game/logic';
+import { Player } from '@/types/game';
 import { Circle, X } from 'lucide-react-native';
 import React, { useMemo, useState } from 'react';
 import { LayoutChangeEvent, StyleSheet, TouchableOpacity, View } from 'react-native';
 import Animated, { FadeIn, ZoomIn } from 'react-native-reanimated';
-import { ThemedView } from '../View';
 
 interface BoardGridProps {
-  board: (string | null)[];
+  board: (Player | null)[];
   onPress: (index: number) => void;
   disabled?: boolean;
 }

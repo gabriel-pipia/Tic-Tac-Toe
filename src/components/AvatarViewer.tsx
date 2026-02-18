@@ -1,17 +1,18 @@
-import { Layout } from '@/constants/Layout';
+import Button from '@/components/ui/Button';
+import { useTheme } from '@/context/ThemeContext';
+import { Layout } from '@/lib/constants/Layout';
 import { X } from 'lucide-react-native';
 import React from 'react';
 import { Image, Modal, StatusBar, StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, {
-  runOnJS,
-  SlideInDown,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  withTiming
+    runOnJS,
+    SlideInDown,
+    useAnimatedStyle,
+    useSharedValue,
+    withSpring,
+    withTiming
 } from 'react-native-reanimated';
-import Button from './Button';
 
 interface AvatarViewerProps {
     visible: boolean;
@@ -23,6 +24,7 @@ export default function AvatarViewer({ visible, url, onClose }: AvatarViewerProp
     const translateY = useSharedValue(0);
     const scale = useSharedValue(1);
     const opacity = useSharedValue(1);
+    const {colors} = useTheme()
 
     React.useEffect(() => {
         if (visible) {
@@ -91,7 +93,15 @@ export default function AvatarViewer({ visible, url, onClose }: AvatarViewerProp
     };
 
     return (
-        <Modal visible={visible} transparent={true} animationType="fade" onRequestClose={onManualClose} statusBarTranslucent>
+        <Modal 
+            visible={visible} 
+            transparent={true} 
+            animationType="fade" 
+            onRequestClose={onManualClose} 
+            statusBarTranslucent 
+            presentationStyle="overFullScreen"
+            hardwareAccelerated
+        >
             <StatusBar hidden />
             <GestureHandlerRootView style={{ flex: 1 }}>
                 <View style={styles.container}>
@@ -119,7 +129,7 @@ export default function AvatarViewer({ visible, url, onClose }: AvatarViewerProp
                         </Animated.View>
                     </GestureDetector>
 
-                    <Button onPress={onManualClose} icon={<X size={24} color="white" />} type='icon' variant='secondary' size='sm' style={styles.closeButton}/>
+                    <Button onPress={onManualClose} icon={<X size={24} color={colors.text} />} type='icon' variant='secondary' size='sm' style={styles.closeButton}/>
                 </View>
             </GestureHandlerRootView>
         </Modal>
@@ -132,6 +142,7 @@ const styles = StyleSheet.create({
         backgroundColor: 'black',
         alignItems: 'center',
         justifyContent: 'center',
+        zIndex: 10000,
     },
     imageWrapper: {
         width: '100%',

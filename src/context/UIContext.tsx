@@ -1,7 +1,8 @@
 
-import BottomSheet from '@/components/BottomSheet';
-import CustomModal, { ModalAction } from '@/components/Modal';
-import Toast, { ToastConfig } from '@/components/Toast';
+import BottomSheet from '@/components/ui/BottomSheet';
+import CustomModal from '@/components/ui/Modal';
+import Toast from '@/components/ui/Toast';
+import { ModalAction, ToastConfig } from '@/types/ui';
 import React, { createContext, useCallback, useContext, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';

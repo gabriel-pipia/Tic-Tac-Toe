@@ -1,46 +1,34 @@
-
-import AvatarViewer from '@/components/AvatarViewer';
-import BottomSheet from '@/components/BottomSheet';
-import Button from '@/components/Button';
-import { ThemedText } from '@/components/Text';
-import { ThemedView } from '@/components/View';
+import BottomSheet from '@/components/ui/BottomSheet';
+import { ThemedText } from '@/components/ui/Text';
+import { ThemedView } from '@/components/ui/View';
 import { useTheme } from '@/context/ThemeContext';
-import { supabase } from '@/utils/supabase';
+import { supabase } from '@/lib/supabase/client';
+import { UserProfile } from '@/types/user';
 import { Image } from 'expo-image';
-import { LockKeyhole as LockIcon, User as UserIcon, X } from 'lucide-react-native';
-import React from 'react';
+import { Calendar, LockKeyhole as LockIcon, User as UserIcon } from 'lucide-react-native';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, TouchableOpacity } from 'react-native';
-
-export type UserProfile = {
-  id: string;
-  username: string;
-  avatar_url: string | null;
-  wins: number;
-  losses: number;
-  draws: number;
-  total_wins?: number; // For when we have period wins vs total wins
-  is_public?: boolean;
-};
+import SheetHeader from './ui/SheetHeader';
 
 type ProfileModalProps = {
   visible: boolean;
   profile: UserProfile | null;
   onClose: () => void;
-  rank?: number; // Optional rank to show
+  rank?: number;
   periodWins?: number;
   isMe?: boolean;
+  onAvatarPress?: (url: string) => void;
 };
 
-export default function ProfileModal({ visible, profile, onClose, rank, periodWins, isMe }: ProfileModalProps) {
+export default function ProfileModal({ visible, profile, onClose, rank, periodWins, isMe, onAvatarPress }: ProfileModalProps) {
   const { colors } = useTheme();
-  const [showAvatar, setShowAvatar] = React.useState(false);
-  const [localProfile, setLocalProfile] = React.useState<UserProfile | null>(profile);
+  const [localProfile, setLocalProfile] = useState<UserProfile | null>(profile);
 
-  React.useEffect(() => {
+  useEffect(() => {
     setLocalProfile(profile);
   }, [profile]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (!visible || !profile?.id) return;
 
     const channel = supabase.channel(`profile:${profile.id}`)
@@ -61,9 +49,9 @@ export default function ProfileModal({ visible, profile, onClose, rank, periodWi
               losses: newProfile.losses,
               draws: newProfile.draws,
               is_public: newProfile.is_public,
-              // We don't expect username/avatar to change often enough to warrant complex merge, but we can:
               username: newProfile.username,
               avatar_url: newProfile.avatar_url,
+              created_at: newProfile.created_at,
             }) : null);
           }
         }
@@ -77,25 +65,21 @@ export default function ProfileModal({ visible, profile, onClose, rank, periodWi
 
   if (!localProfile) return null;
 
-  // Calculate total games and win rate
   const wins = localProfile.total_wins ?? localProfile.wins;
   const totalGames = wins + localProfile.losses + localProfile.draws;
   const winRate = totalGames > 0 ? Math.round((wins / totalGames) * 100) : 0;
 
   return (
-    <>
-      <BottomSheet visible={visible} onClose={onClose}>
-        <ThemedView style={[styles.sheetHeader, { borderBottomColor: colors.border }]}>
-          <ThemedText type="defaultSemiBold" size="lg" colorType="text" weight="bold">
-            {localProfile.is_public === false ? "Profile" : "Profile Details"}
-          </ThemedText>
-          <Button variant="secondary" size='sm' type='icon' onPress={onClose} icon={<X size={20} color={colors.text} />} />
-        </ThemedView>
+    <BottomSheet visible={visible} onClose={onClose}>
+        <SheetHeader
+            title={localProfile.is_public === false ? "Profile" : "Profile Details"}
+            onClose={onClose}
+        />
         
         <ThemedView style={styles.sheetContent}>
            {/* Common Header (Avatar + Name) */}
           <ThemedView style={styles.sheetProfileHeader}>
-              <TouchableOpacity onPress={() => localProfile.avatar_url && setShowAvatar(true)} activeOpacity={0.8} disabled={!localProfile.avatar_url}>
+              <TouchableOpacity onPress={() => localProfile.avatar_url && onAvatarPress?.(localProfile.avatar_url)} activeOpacity={0.8} disabled={!localProfile.avatar_url}>
                   <ThemedView style={[styles.sheetAvatar, { borderColor: colors.border }]}>
                       {localProfile.avatar_url ? (
                           <Image source={{ uri: localProfile.avatar_url }} style={styles.avatar} />
@@ -113,10 +97,16 @@ export default function ProfileModal({ visible, profile, onClose, rank, periodWi
                       )}
                       {localProfile.is_public === false && isMe && (
                         <ThemedView style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 12, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border }}>
-                           <ThemedText size="xs" colorType="subtext">Private Mode</ThemedText>
+                           <ThemedText size="sm" colorType="subtext">Private Mode</ThemedText>
                         </ThemedView>
                       )}
               </ThemedView>
+              {localProfile.created_at && (
+                  <ThemedView style={{ flexDirection: 'row', alignItems: 'center', gap: 6, opacity: 0.7, marginTop: 4 }}>
+                      <Calendar size={16} color={colors.subtext} />
+                      <ThemedText size="sm" colorType="subtext">Joined {new Date(localProfile.created_at).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</ThemedText>
+                  </ThemedView>
+              )}
           </ThemedView>
 
           {/* Check Privacy */}
@@ -160,7 +150,7 @@ export default function ProfileModal({ visible, profile, onClose, rank, periodWi
                       </ThemedView>
                   </ThemedView>
                   
-                  {/* Period Wins (Optional) */}
+                  {/* Period Wins */}
                   {rank !== undefined && periodWins !== undefined && (
                       <ThemedText colorType='accent' size='sm' style={{ marginBottom: 16 }}>
                           Period Wins: {periodWins}
@@ -189,14 +179,7 @@ export default function ProfileModal({ visible, profile, onClose, rank, periodWi
               </>
           )}
         </ThemedView>
-      </BottomSheet>
-
-      <AvatarViewer 
-        visible={showAvatar} 
-        url={localProfile?.avatar_url || null} 
-        onClose={() => setShowAvatar(false)} 
-      />
-    </>
+    </BottomSheet>
   );
 }
 
@@ -267,5 +250,5 @@ const styles = StyleSheet.create({
   winRateFill: {
       height: '100%',
       borderRadius: 4,
-  }
+  },
 });

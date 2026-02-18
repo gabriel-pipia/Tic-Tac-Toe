@@ -1,46 +1,23 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useColorScheme } from 'nativewind';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { Platform } from 'react-native';
+import { Platform, useColorScheme } from 'react-native';
+
+import { Colors } from '@/types/theme';
 
 type Theme = 'light' | 'dark' | 'system';
 
-export type Colors = {
-  background: string;
-  card: string;
-  border: string;
-  text: string;
-  subtext: string;
-  separator: string;
-  iconBg: string;
-  inputBg: string;
-  inputBorder: string;
-  sheetBg: string;
-  primary: string;
-  secondary: string;
-  accent: string;
-  primaryGradient: [string, string];
-  error: string;
-  success: string;
-  white: string;
-  black: string;
-  themedWhite: string;
-  themedBlack: string;
-  info: string;
-  warning: string;
-  purple: string;
-};
+
 
 const lightColors: Colors = {
   background: '#F8FAFC',
-  card: 'rgba(255, 255, 255, 0.5)',
-  border: '#E2E8F0',
+  card: '#F1F3F8',
+  border: '#C5C9D4',
   text: '#0F172A',
   subtext: '#64748B',
-  separator: '#E2E8F0',
+  separator: '#C5C9D4',
   iconBg: '#F1F5F9',
   inputBg: '#F1F5F9',
-  inputBorder: '#E2E8F0',
+  inputBorder: '#C5C9D4',
   sheetBg: '#FFFFFF',
   primary: '#6366F1',
   secondary: '#A855F7',
@@ -59,7 +36,7 @@ const lightColors: Colors = {
 
 const darkColors: Colors = {
   background: '#0F172A',
-  card: 'rgba(15, 23, 42, 0.7)',
+  card: '#181E30',
   border: 'rgba(255, 255, 255, 0.05)',
   text: '#FFFFFF',
   subtext: '#94A3B8',
@@ -86,6 +63,7 @@ const darkColors: Colors = {
 type ThemeContextType = {
   theme: Theme;
   setTheme: (theme: Theme) => void;
+  setOverrideTheme: (theme: Theme | null) => void;
   isDark: boolean;
   colors: Colors;
 };
@@ -112,42 +90,44 @@ const storage = {
 };
 
 export const ThemeProvider = ({ children }: { children: React.ReactNode }) => {
-  const { colorScheme, setColorScheme } = useColorScheme();
   const [theme, setThemeState] = useState<Theme>('system');
+  const systemColorScheme = useColorScheme(); // from react-native now
 
   const loadTheme = useCallback(async () => {
     const savedTheme = await storage.getItem('theme');
     if (savedTheme) {
       setThemeState(savedTheme as Theme);
-      if (savedTheme !== 'system') {
-        setColorScheme(savedTheme as 'light' | 'dark');
-      } else {
-        setColorScheme('system');
-      }
     }
-  }, [setColorScheme]);
+  }, []);
 
   useEffect(() => {
     loadTheme();
   }, [loadTheme]);
 
+  const [overrideTheme, setOverrideThemeState] = useState<Theme | null>(null);
+
   const setTheme = useCallback(async (newTheme: Theme) => {
     setThemeState(newTheme);
     await storage.setItem('theme', newTheme);
-    if (newTheme === 'system') {
-      setColorScheme('system');
-    } else {
-      setColorScheme(newTheme);
-    }
-  }, [setColorScheme]);
+  }, []);
 
-  const isDark = colorScheme === 'dark';
+  const setOverrideTheme = useCallback((tempTheme: Theme | null) => {
+      setOverrideThemeState(tempTheme);
+  }, []);
+
+  // Compute isDark immediately based on state
+  const isDark = useMemo(() => {
+      if (overrideTheme) return overrideTheme === 'dark';
+      if (theme !== 'system') return theme === 'dark';
+      return systemColorScheme === 'dark';
+  }, [overrideTheme, theme, systemColorScheme]);
   const colors = useMemo(() => isDark ? darkColors : lightColors, [isDark]);
 
   return (
     <ThemeContext.Provider value={{
       theme,
       setTheme,
+      setOverrideTheme,
       isDark,
       colors
     }}>

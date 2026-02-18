@@ -1,4 +1,5 @@
 
+import SplashScreen from '@/components/ui/SplashScreen';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { GameProvider } from '@/context/GameContext';
 import { ThemeProvider, useTheme } from '@/context/ThemeContext';
@@ -8,14 +9,12 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import SplashScreen from '../components/SplashScreen';
-import '../global.css';
 
 function InitialLayout() {
   const { session, loading } = useAuth();
   const segments = useSegments();
   const router = useRouter();
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
 
   useEffect(() => {
     if (loading) return;
@@ -42,17 +41,20 @@ function InitialLayout() {
 
   return (
     <NavThemeProvider value={navigationTheme}>
-      <Stack screenOptions={{ 
-        headerShown: false,
-        contentStyle: { backgroundColor: colors.background },
-        animation: 'slide_from_bottom',
-      }}>
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="game/[id]"/>
-        <Stack.Screen name="(auth)" />
-        <Stack.Screen name="index"/>
-        <Stack.Screen name="onboarding/index"/>
-      </Stack>
+      <GameProvider>
+        <Stack screenOptions={{ 
+            headerShown: false,
+            contentStyle: { backgroundColor: colors.background },
+            animation: 'slide_from_bottom',
+        }}>
+            <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="game/[id]"/>
+            <Stack.Screen name="(auth)" />
+            <Stack.Screen name="index"/>
+            <Stack.Screen name="onboarding/index"/>
+        </Stack>
+        <StatusBar style={isDark ? 'light' : 'dark'} />
+      </GameProvider>
     </NavThemeProvider>
   );
 }
@@ -65,13 +67,11 @@ export default function RootLayout() {
       <ThemeProvider>
         <UIProvider>
           <AuthProvider>
-            <GameProvider>
-              {!splashFinished && (
-                 <SplashScreen onFinish={() => setSplashFinished(true)} />
-              )}
-              <InitialLayout />
-              <StatusBar style="light" />
-            </GameProvider>
+            {!splashFinished ? (
+                <SplashScreen onFinish={() => setSplashFinished(true)} />
+            ) : (
+                <InitialLayout />
+            )}
           </AuthProvider>
         </UIProvider>
       </ThemeProvider>

@@ -1,13 +1,13 @@
 
 import { useTheme } from '@/context/ThemeContext';
 import React from 'react';
-import { TextInput, TextInputProps, View } from 'react-native';
+import { StyleSheet, TextInput, TextInputProps, View, ViewStyle } from 'react-native';
 import { ThemedText } from './Text';
 
 interface InputProps extends TextInputProps {
   label?: string;
   error?: string;
-  containerClassName?: string;
+  containerStyle?: ViewStyle;
   leftIcon?: React.ReactNode;
   rightIcon?: React.ReactNode;
 }
@@ -15,8 +15,7 @@ interface InputProps extends TextInputProps {
 export default function Input({ 
   label, 
   error, 
-  containerClassName, 
-  className,
+  containerStyle, 
   leftIcon,
   rightIcon,
   onFocus,
@@ -39,13 +38,13 @@ export default function Input({
   const activeColor = error ? colors.error : (isFocused ? colors.accent : colors.inputBorder);
 
   return (
-    <View className={`w-full ${containerClassName || ''}`}>
+    <View style={[styles.container, containerStyle]}>
       {label && (
-        <ThemedText colorType='text' size="sm" weight='semibold' className='ml-2 mb-2'>{label}</ThemedText>
+        <ThemedText colorType='text' size="sm" weight='semibold' style={styles.label}>{label}</ThemedText>
       )}
-      <View className="relative justify-center">
+      <View style={styles.inputWrapper}>
         {leftIcon && (
-            <View className="absolute left-4 z-10">
+            <View style={styles.leftIcon}>
                 {React.cloneElement(leftIcon as React.ReactElement<any>, {
                     color: isFocused ? colors.accent : (leftIcon as any).props.color || colors.subtext
                 })}
@@ -70,7 +69,7 @@ export default function Input({
           {...props}
         />
          {rightIcon && (
-            <View className="absolute right-4 z-10">
+            <View style={styles.rightIcon}>
                 {React.cloneElement(rightIcon as React.ReactElement<any>, {
                     color: isFocused ? colors.accent : (rightIcon as any).props.color || colors.subtext
                 })}
@@ -78,8 +77,38 @@ export default function Input({
         )}
       </View>
       {error && (
-        <ThemedText type="error" className="text-sm mt-1 ml-1 font-medium" style={{ color: colors.error }}>{error}</ThemedText>
+        <ThemedText type="error" style={[styles.error, { color: colors.error }]}>{error}</ThemedText>
       )}
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    width: '100%',
+  },
+  label: {
+    marginLeft: 8,
+    marginBottom: 8,
+  },
+  inputWrapper: {
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  leftIcon: {
+    position: 'absolute',
+    left: 16,
+    zIndex: 10,
+  },
+  rightIcon: {
+    position: 'absolute',
+    right: 16,
+    zIndex: 10,
+  },
+  error: {
+    marginTop: 4,
+    marginLeft: 4,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+});

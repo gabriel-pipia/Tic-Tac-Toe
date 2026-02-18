@@ -1,13 +1,13 @@
 import AvatarViewer from '@/components/AvatarViewer';
-import Button from '@/components/Button';
 import ProfileModal from '@/components/ProfileModal';
-import RefreshControl from '@/components/RefreshControl';
-import { ThemedText } from '@/components/Text';
-import { ThemedView } from '@/components/View';
-import { Layout } from '@/constants/Layout';
+import Button from '@/components/ui/Button';
+import RefreshControl from '@/components/ui/RefreshControl';
+import { ThemedText } from '@/components/ui/Text';
+import { ThemedView } from '@/components/ui/View';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
-import { supabase } from '@/utils/supabase';
+import { Layout } from '@/lib/constants/Layout';
+import { supabase } from '@/lib/supabase/client';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { ChevronLeft, Crown, User as UserIcon } from 'lucide-react-native';
@@ -38,7 +38,7 @@ type Profile = {
    const [refreshing, setRefreshing] = useState(false);
    const [selectedProfile, setSelectedProfile] = useState<Profile | null>(null);
    const [filter, setFilter] = useState<FilterType>('all');
-   const [showAvatar, setShowAvatar] = useState(false);
+   const [viewAvatar, setViewAvatar] = useState<string | null>(null);
  
    const fetchRankings = React.useCallback(async () => {
      // If refreshing, don't set main loading to true to avoid flicker, just use refreshing state
@@ -155,12 +155,19 @@ type Profile = {
 
             <View style={styles.userInfo}>
                 <ThemedText weight="bold" numberOfLines={1}>{item.username || 'Anonymous'}</ThemedText>
-                {isCurrentUser && <ThemedText size="xs" colorType='accent'>You</ThemedText>}
+                <View style={styles.miniStatsRow}>
+                    <ThemedText size="xs" colorType="success" weight="bold">{item.wins}W</ThemedText>
+                    <View style={[styles.statDot, { backgroundColor: colors.border }]} />
+                    <ThemedText size="xs" colorType="error" weight="bold">{item.losses}L</ThemedText>
+                    <View style={[styles.statDot, { backgroundColor: colors.border }]} />
+                    <ThemedText size="xs" colorType="subtext" weight="bold">{item.draws}D</ThemedText>
+                </View>
+                {isCurrentUser && <ThemedText size="xs" colorType='accent' style={{ marginTop: 2 }}>You</ThemedText>}
             </View>
 
             <View style={styles.simpleStat}>
-                <ThemedText weight="bold" colorType='text'>{item.wins}</ThemedText>
-                <ThemedText size="xs" colorType='subtext'>Wins</ThemedText>
+                <ThemedText size="lg" weight="black" colorType='accent'>{Math.round((item.wins / (item.wins + item.losses + item.draws || 1)) * 100)}%</ThemedText>
+                <ThemedText size="xs" colorType='subtext' weight="bold">Win Rate</ThemedText>
             </View>
         </TouchableOpacity>
       </Animated.View>
@@ -232,13 +239,15 @@ type Profile = {
         rank={getSelectedRank()}
         periodWins={filter !== 'all' ? selectedProfile?.wins : undefined}
         isMe={selectedProfile?.id === user?.id}
+        onAvatarPress={(url) => setViewAvatar(url)}
+      />
+      
+      <AvatarViewer 
+          visible={!!viewAvatar}
+          url={viewAvatar}
+          onClose={() => setViewAvatar(null)}
       />
 
-      <AvatarViewer 
-        visible={showAvatar} 
-        url={selectedProfile?.avatar_url || null} 
-        onClose={() => setShowAvatar(false)} 
-      />
     </ThemedView>
   );
 }
@@ -382,6 +391,18 @@ const styles = StyleSheet.create({
   },
   userInfo: {
     flex: 1,
+  },
+  miniStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+    gap: 6,
+  },
+  statDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    opacity: 0.5,
   },
   simpleStat: {
     alignItems: 'center',

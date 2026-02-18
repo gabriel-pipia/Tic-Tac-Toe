@@ -1,23 +1,21 @@
-import Button from '@/components/Button';
 import OnlineBoard from '@/components/game/OnlineBoard';
+import ReactionDisplay from '@/components/game/ReactionDisplay';
+import ReactionPicker from '@/components/game/ReactionPicker';
 import ResultAnimation from '@/components/game/ResultAnimation';
 import SoloBoard from '@/components/game/SoloBoard';
-import { ThemedText } from '@/components/Text';
-import { ThemedView } from '@/components/View';
-import { Layout } from '@/constants/Layout';
+import Button from '@/components/ui/Button';
+import { ThemedText } from '@/components/ui/Text';
+import { ThemedView } from '@/components/ui/View';
 import { useTheme } from '@/context/ThemeContext';
-import { Player } from '@/utils/gameLogic';
+import { Layout } from '@/lib/constants/Layout';
+
 import { Image } from 'expo-image';
 import { ArrowLeft, BookOpen, Bot, Circle, Copy, Crown, RefreshCw, User as UserIcon, X as XIcon } from 'lucide-react-native';
 import React from 'react';
 import { ActivityIndicator, StyleSheet, TouchableOpacity, View } from 'react-native';
 import Animated, { FadeInDown, ZoomIn } from 'react-native-reanimated';
 
-export interface GameProfile {
-  id: string;
-  username: string;
-  avatar_url: string | null;
-}
+import { GameProfile, Player } from '@/types/game';
 
 interface GameScreenProps {
   board: (Player | null)[];
@@ -36,6 +34,9 @@ interface GameScreenProps {
   playerXProfile?: GameProfile | null;
   playerOProfile?: GameProfile | null;
   onProfilePress?: (profile: GameProfile) => void;
+  reactionX?: string | null;
+  reactionO?: string | null;
+  onReaction?: (emoji: string) => void;
 }
 
 export default function GameScreen({
@@ -54,7 +55,10 @@ export default function GameScreen({
   score = { player: 0, opponent: 0 },
   playerXProfile,
   playerOProfile,
-  onProfilePress
+  onProfilePress,
+  reactionX,
+  reactionO,
+  onReaction
 }: GameScreenProps) {
   const { colors } = useTheme();
   
@@ -86,13 +90,13 @@ export default function GameScreen({
                  )}
               </View>
             
-            <Button 
-                onPress={onShowRules} 
-                variant='secondary'
-                size='sm'
-                type='icon'
-                icon={<BookOpen size={20} color={colors.text} />}
-              />
+                <Button 
+                    onPress={onShowRules} 
+                    variant='secondary'
+                    size='sm'
+                    type='icon'
+                    icon={<BookOpen size={20} color={colors.text} />}
+                />
           </Animated.View>
 
           {/* Players Header */}
@@ -106,6 +110,8 @@ export default function GameScreen({
                 isWinner={winner === 'X'}
                 isMe={myMark === 'X'}
                 onPress={() => playerXProfile && onProfilePress?.(playerXProfile)}
+                reaction={reactionX}
+                onReaction={onReaction}
               />
 
               {/* VS / Status */}
@@ -130,6 +136,8 @@ export default function GameScreen({
                 isBot={isBotGame}
                 waiting={onlineStatus === 'waiting'}
                 onPress={() => playerOProfile && onProfilePress?.(playerOProfile)}
+                reaction={reactionO}
+                onReaction={onReaction}
               />
           </Animated.View>
 
@@ -170,14 +178,16 @@ export default function GameScreen({
 
           {/* Footer Controls */}
           {(!onlineStatus || onlineStatus !== 'waiting') && (
-            <Animated.View entering={FadeInDown.delay(500)} style={styles.footer}>
+            <Animated.View entering={FadeInDown.delay(500)} style={[styles.footer, { flexDirection: 'row', gap: 12 }]}>
                  <Button 
                     title={winner ? "Play Again" : "Reset Game"}
                     onPress={onReset}
                     variant={winner ? "primary" : "secondary"}
                     icon={<RefreshCw size={20} color={winner ? 'white' : colors.text} />}
-                    style={{ minWidth: "100%" }}
+                    style={{ flex: 1 }}
                 />
+                
+                {onReaction && !isBotGame && <ReactionPicker onSelect={onReaction} />}
             </Animated.View>
           )}
 
@@ -189,9 +199,11 @@ export default function GameScreen({
   );
 }
 
-const PlayerCard = ({ profile, mark, score, active, isWinner, isMe, isBot, waiting, onPress }: any) => {
+const PlayerCard = ({ profile, mark, score, active, isWinner, isMe, isBot, waiting, onPress, reaction }: any) => {
     const { colors } = useTheme();
     
+    // Only show picker if it's ME and not waiting/bot
+
     return (
         <TouchableOpacity
             activeOpacity={0.8}
@@ -236,6 +248,9 @@ const PlayerCard = ({ profile, mark, score, active, isWinner, isMe, isBot, waiti
                         <Crown size={20} color="#eab308" fill="#eab308" />
                     </View>
                 )}
+                
+                {/* Reaction Display */}
+                {reaction && <ReactionDisplay emoji={reaction} />}
             </View>
 
             <View style={{ alignItems: 'center' }}>
@@ -245,8 +260,10 @@ const PlayerCard = ({ profile, mark, score, active, isWinner, isMe, isBot, waiti
                 </ThemedText>
             </View>
 
-            <View style={[styles.scoreBadge, { backgroundColor: colors.background }]}>
-                 <ThemedText weight="black" size="lg">{score}</ThemedText>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <View style={[styles.scoreBadge, { backgroundColor: colors.background }]}>
+                     <ThemedText weight="black" size="lg">{score}</ThemedText>
+                </View>
             </View>
         </Animated.View>
         </TouchableOpacity>

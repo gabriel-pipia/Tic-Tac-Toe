@@ -1,23 +1,24 @@
-import Button from '@/components/Button';
-import { ThemedText } from '@/components/Text';
-import { ThemedView } from '@/components/View';
-import { Layout } from '@/constants/Layout';
+import Button from '@/components/ui/Button';
+import Logo from '@/components/ui/Logo';
+import { ThemedText } from '@/components/ui/Text';
+import { ThemedView } from '@/components/ui/View';
 import { useTheme } from '@/context/ThemeContext';
+import { Layout } from '@/lib/constants/Layout';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
-import { Gamepad2, Globe, ScanLine } from 'lucide-react-native';
+import { Globe, ScanLine } from 'lucide-react-native';
 import { useRef, useState } from 'react';
 import { FlatList, Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
 import Animated, {
-  Extrapolation,
-  FadeIn,
-  FadeOut,
-  LinearTransition,
-  SharedValue,
-  interpolate,
-  useAnimatedScrollHandler,
-  useAnimatedStyle,
-  useSharedValue
+    Extrapolation,
+    FadeIn,
+    FadeOut,
+    LinearTransition,
+    SharedValue,
+    interpolate,
+    useAnimatedScrollHandler,
+    useAnimatedStyle,
+    useSharedValue
 } from 'react-native-reanimated';
 
 type Slide = {
@@ -93,7 +94,7 @@ export default function Onboarding() {
       id: '1',
       title: 'Tic Tac Toe Reimagined',
       description: 'Experience the classic game with a stunning modern design.',
-      icon: <Gamepad2 size={100} color={colors.accent} />,
+      icon: <Logo variant="icon" size={100} />,
     },
     {
       id: '2',
