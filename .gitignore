@@ -71,3 +71,6 @@ app-example/
 *.log
 *.tmp
 *.temp
+
+# Local Netlify folder
+.netlify
