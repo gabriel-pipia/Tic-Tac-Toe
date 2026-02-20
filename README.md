@@ -1,50 +1,190 @@
-# Welcome to your Expo app 👋
+# ✕ Tic Tac Toe — Pro Edition
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A premium, full-stack **Tic Tac Toe** mobile app built with **Expo (React Native)** and **Supabase**. Play solo against a bot, challenge friends in real-time via QR code, climb a global leaderboard, and track your game history — all with a polished, themeable UI.
 
-## Get started
+---
 
-1. Install dependencies
+## ✨ Features
 
-   ```bash
-   npm install
-   ```
+### 🎮 Game Modes
+- **Play Solo** — Challenge a built-in bot across multiple difficulty levels
+- **Play with Friend** — Create a private game room and share it via QR code, manual Game ID, or a share link; your friend scans or pastes the ID to join instantly
 
-2. Start the app
+### 🏆 Global Leaderboard
+- Live-updating global rankings powered by Supabase Realtime
+- Player avatars, win counts, and profile cards visible directly from the home screen
 
-   ```bash
-   npx expo start
-   ```
+### 📜 Game History
+- Full match history with outcomes, timestamps, and board replays
 
-In the output, you'll find options to open the app in a
+### 👤 Profiles & Accounts
+- Email/password sign-up and login
+- Customisable username and profile picture (uploaded to Supabase Storage)
+- Public/private profile toggle
+- One-tap account deletion (clears avatar, games, profile, and auth record)
+- Password reset via email
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+### 🎨 Theming
+- Automatic **light / dark mode** following system preference
+- Smooth animated transitions throughout the UI
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+### 🔔 Reactive UX
+- Gravity sensor-driven floating background shapes on the home screen
+- In-game emoji reactions between players
+- Animated result celebrations on win/draw/loss
+- Real-time board sync between two players via Supabase Realtime (with polling fallback)
 
-## Get a fresh project
+---
 
-When you're ready, run:
+## 🛠️ Tech Stack
 
-```bash
-npm run reset-project
+| Layer | Technology |
+|---|---|
+| Framework | [Expo](https://expo.dev/) (SDK 54) · React Native 0.81 |
+| Language | TypeScript |
+| Routing | Expo Router (file-based) |
+| Backend / Auth | [Supabase](https://supabase.com/) (PostgreSQL + RLS + Realtime) |
+| Storage | Supabase Storage (avatar images) |
+| Local Storage | AsyncStorage |
+| Animations | React Native Reanimated 4 |
+| UI Icons | Lucide React Native · Expo Vector Icons |
+| QR Code | `react-native-qrcode-svg` · Expo Camera |
+| Bottom Sheets | `@gorhom/bottom-sheet` |
+
+---
+
+## 📁 Project Structure
+
+```
+src/
+├── app/                  # Expo Router pages
+│   ├── (tabs)/           # Bottom-tab screens (Home, Profile, Scan)
+│   ├── game/             # Dynamic game screen [id]
+│   ├── play-friend.tsx   # QR host / join lobby
+│   └── global-rank.tsx   # Full leaderboard page
+├── components/
+│   ├── game/             # BoardGrid, SoloBoard, OnlineBoard, ReactionPicker …
+│   └── ui/               # Design-system primitives (Button, Input, Text, View …)
+├── context/
+│   ├── AuthContext.tsx   # Session management + auth helpers
+│   ├── GameContext.tsx   # Game state machine
+│   ├── ThemeContext.tsx  # Light / dark colour tokens
+│   └── UIContext.tsx     # Global modal, toast, sheet state
+├── hooks/                # Custom React hooks
+├── lib/
+│   ├── constants/        # Layout, breakpoints
+│   ├── game/             # Bot AI logic
+│   └── supabase/
+│       ├── client.ts     # Supabase client setup
+│       ├── schema.sql    # Full DB schema (run once to set up)
+│       └── reset.sql     # Wipes all project data (dev utility)
+└── types/                # Shared TypeScript types
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+---
 
-## Learn more
+## 🚀 Getting Started
 
-To learn more about developing your project with Expo, look at the following resources:
+### Prerequisites
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+- [Node.js](https://nodejs.org/) ≥ 18
+- [Expo CLI](https://docs.expo.dev/get-started/installation/) — `npm install -g expo-cli`
+- [Expo Go](https://expo.dev/go) on your device **or** an Android/iOS simulator
+- A [Supabase](https://supabase.com/) project
 
-## Join the community
+### 1. Clone the repository
 
-Join our community of developers creating universal apps.
+```bash
+git clone https://github.com/gabriel-pipia/Tic-Tac-Toe.git
+cd Tic-Tac-Toe
+```
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+### 2. Install dependencies
+
+```bash
+npm install
+```
+
+### 3. Set up Supabase
+
+1. Create a new project at [supabase.com](https://supabase.com/).
+2. Open the **SQL Editor** and run the full contents of [`src/lib/supabase/schema.sql`](src/lib/supabase/schema.sql) to create all tables, policies, triggers, storage buckets, and functions.
+3. Copy your project credentials from **Project Settings → API**.
+
+### 4. Configure environment variables
+
+Create a `.env` file in the project root:
+
+```env
+EXPO_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+```
+
+### 5. Run the app
+
+```bash
+# Start the Expo dev server
+npm start
+
+# Or target a specific platform
+npm run android
+npm run ios
+npm run web
+```
+
+---
+
+## 🗄️ Database Schema
+
+| Table | Purpose |
+|---|---|
+| `profiles` | Public user data — username, avatar, wins, losses, draws, visibility |
+| `games` | Game state — board, turn, players, scores, status, reactions |
+
+**Key RLS policies:**
+- Profiles are publicly readable; only the owner can insert and update.
+- Games are visible to participants and to anyone when `status = 'waiting'` (so others can join).
+- Players can update games they participate in, or join a waiting game.
+- A server-side `delete_own_account()` RPC safely removes a user's games, profile, and auth record in one call.
+
+**Realtime:**
+- Both `profiles` and `games` are published for Supabase Realtime, enabling live leaderboard updates and in-game board/reaction sync.
+
+---
+
+## 🔑 Environment Variables
+
+| Variable | Description |
+|---|---|
+| `EXPO_PUBLIC_SUPABASE_URL` | Your Supabase project URL |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Your Supabase anonymous (public) key |
+
+---
+
+## 📜 Available Scripts
+
+| Script | Description |
+|---|---|
+| `npm start` | Start Expo dev server |
+| `npm run android` | Open on Android emulator / device |
+| `npm run ios` | Open on iOS simulator / device |
+| `npm run web` | Open in browser |
+| `npm run lint` | Run ESLint |
+
+---
+
+## 🤝 Contributing
+
+Pull requests are welcome! For major changes, please open an issue first to discuss what you would like to change.
+
+1. Fork the repository
+2. Create your feature branch: `git checkout -b feature/amazing-feature`
+3. Commit your changes: `git commit -m 'feat: add amazing feature'`
+4. Push to the branch: `git push origin feature/amazing-feature`
+5. Open a Pull Request
+
+---
+
+## 📄 License
+
+This project is open-source and available under the [MIT License](LICENSE).
