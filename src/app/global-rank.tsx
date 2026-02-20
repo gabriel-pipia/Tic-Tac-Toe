@@ -1,11 +1,10 @@
-import AvatarViewer from '@/components/AvatarViewer';
-import ProfileModal from '@/components/ProfileModal';
 import Button from '@/components/ui/Button';
 import RefreshControl from '@/components/ui/RefreshControl';
 import { ThemedText } from '@/components/ui/Text';
 import { ThemedView } from '@/components/ui/View';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
+import { useUI } from '@/context/UIContext';
 import { Layout } from '@/lib/constants/Layout';
 import { supabase } from '@/lib/supabase/client';
 import { Image } from 'expo-image';
@@ -26,7 +25,7 @@ type Profile = {
     is_public?: boolean;
  };
  
- type FilterType = 'day' | 'month' | 'year' | 'all';
+ type FilterType = 'day' | 'week' | 'month' | 'year' | 'all';
  
  export default function GlobalRankScreen() {
    const { user } = useAuth();
@@ -36,9 +35,8 @@ type Profile = {
    const [profiles, setProfiles] = useState<Profile[]>([]);
    const [loading, setLoading] = useState(true);
    const [refreshing, setRefreshing] = useState(false);
-   const [selectedProfile, setSelectedProfile] = useState<Profile | null>(null);
    const [filter, setFilter] = useState<FilterType>('all');
-   const [viewAvatar, setViewAvatar] = useState<string | null>(null);
+   const { showProfileModal, showAvatarViewer } = useUI();
  
    const fetchRankings = React.useCallback(async () => {
      // If refreshing, don't set main loading to true to avoid flicker, just use refreshing state
@@ -49,6 +47,7 @@ type Profile = {
          const { data, error } = await supabase
            .from('profiles')
            .select('*')
+           .eq('is_public', true)
            .order('wins', { ascending: false })
            .limit(50);
  
@@ -56,25 +55,40 @@ type Profile = {
          setProfiles(data?.map(p => ({ ...p, total_wins: p.wins })) || []);
        } else {
          // Time based filtering
-         const startDate = new Date();
-         if (filter === 'day') startDate.setDate(startDate.getDate() - 1);
-         if (filter === 'month') startDate.setMonth(startDate.getMonth() - 1);
-         if (filter === 'year') startDate.setFullYear(startDate.getFullYear() - 1);
- 
+         const now = new Date();
+         let startDate: Date;
+         
+         if (filter === 'day') {
+           // Start of today (00:00) 
+           startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+         } else if (filter === 'week') {
+           // Last 7 days
+           startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+         } else if (filter === 'month') {
+           // Start of current month
+           startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+         } else if (filter === 'year') {
+           // Start of current year
+           startDate = new Date(now.getFullYear(), 0, 1);
+         } else {
+           startDate = new Date(0);
+         }
+
          // Fetch games within timerange
          const { data: games, error } = await supabase
             .from('games')
-            .select('winner')
+            .select('winner, player_x, player_o')
             .eq('status', 'finished')
             .neq('winner', 'DRAW') 
             .gte('created_at', startDate.toISOString()); 
  
          if (error) throw error;
  
-         // Aggregate wins
+         // Aggregate wins by player ID
          const winCounts: Record<string, number> = {};
          games?.forEach((g: any) => {
-              if (g.winner) winCounts[g.winner] = (winCounts[g.winner] || 0) + 1;
+              const winnerId = g.winner === 'X' ? g.player_x : (g.winner === 'O' ? g.player_o : null);
+              if (winnerId) winCounts[winnerId] = (winCounts[winnerId] || 0) + 1;
          });
  
          // Convert to array and sort
@@ -88,24 +102,28 @@ type Profile = {
               // Fetch profile details
              const { data: profilesData } = await supabase
              .from('profiles')
-             .select('id, username, avatar_url, wins, losses, draws, is_public')
+             .select('id, username, avatar_url, wins, losses, draws, is_public, created_at')
              .in('id', sortedWinners.map(([id]) => id));
  
               // Merge
-              const mappedProfiles = sortedWinners.map(([id, wins]) => {
-                 const p = profilesData?.find(pd => pd.id === id);
-                 return {
-                     id,
-                     username: p?.username || 'Unknown',
-                     avatar_url: p?.avatar_url || null,
-                     wins, // Period Wins (for sorting/display in list)
-                     total_wins: p?.wins || 0, // All Time Wins (for modal)
-                     losses: p?.losses || 0, 
-                     draws: p?.draws || 0,
-                     is_public: p?.is_public
-                 };
-              });
-              setProfiles(mappedProfiles);
+               // Merge and filter private profiles
+               const mappedProfiles = (sortedWinners
+                 .map(([id, wins]) => {
+                    const p = profilesData?.find(pd => pd.id === id);
+                    if (!p || !p.is_public) return null;
+                    return {
+                        id,
+                        username: p.username || 'Unknown',
+                        avatar_url: p.avatar_url || null,
+                        wins, // Period Wins (for sorting/display in list)
+                        total_wins: p.wins || 0, // All Time Wins (for modal)
+                        losses: p.losses || 0, 
+                        draws: p.draws || 0,
+                        is_public: p.is_public
+                    } as Profile;
+                 })
+                 .filter((p) => p !== null)) as Profile[];
+               setProfiles(mappedProfiles);
          }
       }
     } catch (error) {
@@ -135,7 +153,13 @@ type Profile = {
     return (
       <Animated.View entering={FadeInDown.delay(index * 50 + 500)}>
         <TouchableOpacity 
-            onPress={() => setSelectedProfile(item)}
+            onPress={() => showProfileModal({
+                // @ts-ignore
+                profile: item,
+                rank: index + 4,
+                periodWins: filter !== 'all' ? item.wins : undefined,
+                isMe: item.id === user?.id
+            })}
             style={[
             styles.rankItem, 
             { backgroundColor: isCurrentUser ? `${colors.accent}1A` : colors.card, borderColor: isCurrentUser ? colors.accent : colors.border }
@@ -145,13 +169,17 @@ type Profile = {
                 <ThemedText weight="bold" colorType='subtext'>#{rank}</ThemedText>
             </View>
             
-            <View style={[styles.avatarContainer, { backgroundColor: colors.border }]}>
+            <TouchableOpacity 
+                onPress={() => item.avatar_url && showAvatarViewer(item.avatar_url)}
+                disabled={!item.avatar_url}
+                style={[styles.avatarContainer, { backgroundColor: colors.border }]}
+            >
                 {item.avatar_url ? (
-                    <Image source={{ uri: item.avatar_url }} style={styles.avatar} />
+                    <Image source={{ uri: item.avatar_url }} style={styles.avatar} contentFit="cover" transition={200} />
                 ) : (
                     <UserIcon size={20} color={colors.subtext} />
                 )}
-            </View>
+            </TouchableOpacity>
 
             <View style={styles.userInfo}>
                 <ThemedText weight="bold" numberOfLines={1}>{item.username || 'Anonymous'}</ThemedText>
@@ -174,11 +202,7 @@ type Profile = {
     );
   };
 
-  // Helper to find rank of selected profile
-  const getSelectedRank = () => {
-      if (!selectedProfile) return 0;
-      return profiles.findIndex(p => p.id === selectedProfile.id) + 1;
-  };
+
 
   return (
     <ThemedView safe themed style={styles.container}>
@@ -190,9 +214,25 @@ type Profile = {
         </ThemedView>
 
         <ThemedView style={styles.filterContainer}>
-            {(['all', 'day', 'month', 'year'] as const).map((f) => (
-              <Button key={f} title={f === 'all' ? 'All Time' : f.charAt(0).toUpperCase() + f.slice(1)} variant={filter === f ? "primary" : "secondary"} type='icon' size='sm' onPress={() => setFilter(f)} />
-            ))}
+            {(['all', 'day', 'week', 'month', 'year'] as const).map((f) => {
+              const labels: Record<FilterType, string> = {
+                all: 'All Time',
+                day: 'Today',
+                week: 'This Week',
+                month: 'This Month',
+                year: 'This Year'
+              };
+              return (
+                <Button 
+                  key={f} 
+                  title={labels[f]} 
+                  variant={filter === f ? "primary" : "secondary"} 
+                  type='icon' 
+                  size='sm' 
+                  onPress={() => setFilter(f)} 
+                />
+              );
+            })}
         </ThemedView>
 
         {loading ? (
@@ -212,13 +252,31 @@ type Profile = {
                         {topThree.length > 0 ? (
                             <>
                                 <View style={styles.podiumPlace}>
-                                    {topThree[1] && <PodiumItem profile={topThree[1]} rank={2} onPress={() => setSelectedProfile(topThree[1])} />}
+                                    {topThree[1] && <PodiumItem profile={topThree[1]} rank={2} onPress={() => showProfileModal({
+                                        // @ts-ignore
+                                        profile: topThree[1],
+                                        rank: 2,
+                                        periodWins: filter !== 'all' ? topThree[1].wins : undefined,
+                                        isMe: topThree[1].id === user?.id
+                                    })} />}
                                 </View>
                                 <View style={[styles.podiumPlace, { zIndex: 10 }]}>
-                                    {topThree[0] && <PodiumItem profile={topThree[0]} rank={1} onPress={() => setSelectedProfile(topThree[0])} />}
+                                    {topThree[0] && <PodiumItem profile={topThree[0]} rank={1} onPress={() => showProfileModal({
+                                        // @ts-ignore
+                                        profile: topThree[0],
+                                        rank: 1,
+                                        periodWins: filter !== 'all' ? topThree[0].wins : undefined,
+                                        isMe: topThree[0].id === user?.id
+                                    })} />}
                                 </View>
                                 <View style={styles.podiumPlace}>
-                                    {topThree[2] && <PodiumItem profile={topThree[2]} rank={3} onPress={() => setSelectedProfile(topThree[2])} />}
+                                    {topThree[2] && <PodiumItem profile={topThree[2]} rank={3} onPress={() => showProfileModal({
+                                        // @ts-ignore
+                                        profile: topThree[2],
+                                        rank: 3,
+                                        periodWins: filter !== 'all' ? topThree[2].wins : undefined,
+                                        isMe: topThree[2].id === user?.id
+                                    })} />}
                                 </View>
                             </>
                         ) : (
@@ -231,29 +289,13 @@ type Profile = {
             />
         )}
       </View>
-
-      <ProfileModal 
-        visible={!!selectedProfile}
-        profile={selectedProfile} 
-        onClose={() => setSelectedProfile(null)}
-        rank={getSelectedRank()}
-        periodWins={filter !== 'all' ? selectedProfile?.wins : undefined}
-        isMe={selectedProfile?.id === user?.id}
-        onAvatarPress={(url) => setViewAvatar(url)}
-      />
-      
-      <AvatarViewer 
-          visible={!!viewAvatar}
-          url={viewAvatar}
-          onClose={() => setViewAvatar(null)}
-      />
-
     </ThemedView>
   );
 }
 
 const PodiumItem = ({ profile, rank, onPress }: { profile: Profile, rank: number, onPress: () => void }) => {
     const { colors } = useTheme();
+    const { showAvatarViewer } = useUI();
     const isFirst = rank === 1;
     const size = isFirst ? 100 : 80;
     const color = rank === 1 ? '#eab308' : rank === 2 ? '#94a3b8' : '#b45309'; 
@@ -268,19 +310,23 @@ const PodiumItem = ({ profile, rank, onPress }: { profile: Profile, rank: number
                 <Crown size={isFirst ? 30 : 24} color={color} fill={color} />
             </View>
             
-            <View style={[
-                styles.podiumAvatarContainer, 
-                { width: size, height: size, borderColor: color,  shadowColor: color }
-            ]}>
+            <TouchableOpacity 
+                onPress={() => profile.avatar_url && showAvatarViewer(profile.avatar_url)}
+                disabled={!profile.avatar_url}
+                style={[
+                    styles.podiumAvatarContainer, 
+                    { width: size, height: size, borderColor: color,  shadowColor: color }
+                ]}
+            >
                 {profile.avatar_url ? (
-                    <Image source={{ uri: profile.avatar_url }} style={styles.avatar} />
+                    <Image source={{ uri: profile.avatar_url }} style={styles.avatar} contentFit="cover" transition={200} />
                 ) : (
                     <UserIcon size={size/2} color={colors.subtext} />
                 )}
                 <View style={[styles.rankBadge, { backgroundColor: color }]}>
                     <ThemedText size="sm" weight="bold" style={{ color: 'white' }}>{rank}</ThemedText>
                 </View>
-            </View>
+            </TouchableOpacity>
 
             <ThemedText weight="bold" numberOfLines={1} style={{ marginTop: 8, maxWidth: 100 }} align="center">
                 {profile.username || 'Anonymous'}
@@ -310,6 +356,7 @@ const styles = StyleSheet.create({
   },
   filterContainer: {
     flexDirection: 'row',
+    flexWrap: "wrap", 
     paddingHorizontal: 16,
     marginTop: 8,
     gap: 12,

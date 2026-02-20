@@ -1,28 +1,22 @@
-import AvatarViewer from '@/components/AvatarViewer';
-import ProfileModal from '@/components/ProfileModal';
-import BottomSheet from '@/components/ui/BottomSheet';
 import Button from '@/components/ui/Button';
+import FloatingShape from '@/components/ui/FloatingShape';
 import Logo from '@/components/ui/Logo';
 import RefreshControl from '@/components/ui/RefreshControl';
 import { ThemedText } from '@/components/ui/Text';
 import { ThemedView } from '@/components/ui/View';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
-import { UserProfile } from '@/types/user';
-import { useFocusEffect, useRouter } from 'expo-router';
-import { ChevronRight, Circle, Handshake, Info, ScanLine, ThumbsDown, Trophy, User, X } from 'lucide-react-native';
-import React, { useCallback, useState } from 'react';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
-import Animated, { FadeInDown, FadeOut, SensorType, useAnimatedSensor } from 'react-native-reanimated';
-
-import MiniBoard from '@/components/game/MiniBoard';
-import RuleCard from '@/components/game/RuleCard';
-import FloatingShape from '@/components/ui/FloatingShape';
-import SheetHeader from '@/components/ui/SheetHeader';
 import { useUI } from '@/context/UIContext';
 import { Layout } from '@/lib/constants/Layout';
 import { supabase } from '@/lib/supabase/client';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 import { Image } from 'expo-image';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { ChevronRight, Circle, Info, ScanLine, Trophy, User, X } from 'lucide-react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import Animated, { FadeInDown, FadeOut, SensorType, useAnimatedSensor } from 'react-native-reanimated';
 
 const { width, height } = Layout.window;
 
@@ -32,17 +26,14 @@ export default function HomeScreen() {
   const router = useRouter();
 
   const sensor = useAnimatedSensor(SensorType.GRAVITY, { interval: 20 });
-  const [showRules, setShowRules] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [topPlayers, setTopPlayers] = useState<any[]>([]);
-  const [selectedProfile, setSelectedProfile] = useState<UserProfile | null>(null);
-  const [viewAvatar, setViewAvatar] = useState<string | null>(null);
-  const { showModal, hideModal } = useUI();
+  const { showModal, hideModal, showAuthModal, showIntroductionModal, showProfileModal, showAvatarViewer } = useUI();
 
   const fetchTopPlayers = useCallback(async () => {
       const { data } = await supabase
         .from('profiles')
-        .select('id, username, avatar_url, wins, losses, draws, is_public')
+        .select('id, username, avatar_url, wins, losses, draws, is_public, created_at')
         .not('username', 'is', null)
         .eq('is_public', true)
         .order('wins', { ascending: false })
@@ -59,82 +50,106 @@ export default function HomeScreen() {
     setRefreshing(false);
   };
 
+  // Real-time subscription for rank changes
+  useEffect(() => {
+    const channel = supabase
+      .channel('home_profiles')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'profiles',
+      }, () => {
+        // Re-fetch top players when any profile changes
+        fetchTopPlayers();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchTopPlayers]);
+
   useFocusEffect(
     useCallback(() => {
-      if (!user) return;
-      
-      const ensureProfile = async () => {
-          // Check if profile exists and has username
-          const { data, error } = await supabase.from('profiles').select('username').eq('id', user.id).single();
-          
-          if (error || !data || !data.username) {
-              console.log("Repairing profile...");
-              const username = user.user_metadata?.username || user.user_metadata?.full_name || user.email?.split('@')[0] || 'Player';
-              const avatar_url = user.user_metadata?.avatar_url || null;
-              
-              await supabase.from('profiles').upsert({
-                  id: user.id,
-                  username: username,
-                  avatar_url: avatar_url,
-                  updated_at: new Date()
-              });
-          }
-      };
-      
-      const checkActiveGame = async () => {
-         const { data, error } = await supabase
-           .from('games')
-           .select('id, status')
-           .in('status', ['playing', 'waiting'])
-           .or(`player_x.eq.${user.id},player_o.eq.${user.id}`)
-           .maybeSingle();
-         
-         if (data && !error) {
-             const isWaiting = data.status === 'waiting';
-             showModal({
-                 title: isWaiting ? 'Open Lobby Found' : 'Active Game Found',
-                 description: isWaiting 
-                    ? 'You have an open game room waiting for a player. Do you want to return to it?'
-                    : 'You have a game in progress. Do you want to rejoin?',
-                 actions: [
-                     { 
-                         text: isWaiting ? 'Cancel' : 'Forfeit', 
-                         variant: 'danger',
-                         onPress: async () => {
-                             hideModal();
-                             await supabase.from('games').update({ status: 'abandoned' }).eq('id', data.id);
-                         }
-                     },
-                     { 
-                         text: 'Rejoin', 
-                         variant: 'primary',
-                         onPress: () => {
-                             hideModal();
-                             router.push(`/game/${data.id}`);
-                         }
-                     }
-                 ]
-             });
-         }
-      };
-
-      checkActiveGame();
-      ensureProfile();
+      // Always fetch top players - visible to everyone
       fetchTopPlayers();
-    }, [user, hideModal, router, showModal, fetchTopPlayers])
+
+      if (user) {
+        const ensureProfile = async () => {
+            // Check if profile exists and has username
+            const { data, error } = await supabase.from('profiles').select('username').eq('id', user.id).single();
+            
+            if (error || !data || !data.username) {
+                console.log("Repairing profile...");
+                const username = user.user_metadata?.username || user.user_metadata?.full_name || user.email?.split('@')[0] || 'Player';
+                const avatar_url = user.user_metadata?.avatar_url || null;
+                
+                await supabase.from('profiles').upsert({
+                    id: user.id,
+                    username: username,
+                    avatar_url: avatar_url,
+                    updated_at: new Date()
+                });
+            }
+        };
+      
+        const checkActiveGame = async () => {
+           const { data, error } = await supabase
+             .from('games')
+             .select('id, status')
+             .in('status', ['playing', 'waiting'])
+             .or(`player_x.eq.${user.id},player_o.eq.${user.id}`)
+             .maybeSingle();
+           
+           if (data && !error) {
+               const isWaiting = data.status === 'waiting';
+               showModal({
+                   title: isWaiting ? 'Open Lobby Found' : 'Active Game Found',
+                   description: isWaiting 
+                      ? 'You have an open game room waiting for a player. Do you want to return to it?'
+                      : 'You have a game in progress. Do you want to rejoin?',
+                   actions: [
+                       { 
+                           text: isWaiting ? 'Cancel' : 'Forfeit', 
+                           variant: 'danger',
+                           onPress: async () => {
+                               hideModal();
+                               await supabase.from('games').update({ status: 'abandoned' }).eq('id', data.id);
+                           }
+                       },
+                       { 
+                           text: 'Rejoin', 
+                           variant: 'primary',
+                           onPress: () => {
+                               hideModal();
+                               router.push(`/game/${data.id}`);
+                           }
+                       }
+                   ]
+               });
+           }
+        };
+
+        checkActiveGame();
+        ensureProfile();
+      } else {
+          const checkOnboarding = async () => {
+             const hasSeen = await AsyncStorage.getItem('hasSeenOnboarding');
+             if (hasSeen !== 'true') {
+                 showIntroductionModal();
+             }
+          };
+          checkOnboarding();
+      }
+    }, [user, hideModal, router, showModal, fetchTopPlayers, showIntroductionModal])
   );
 
   return (
      <ThemedView 
         themed safe edges={['top', 'left', 'right', 'bottom']} 
         style={[styles.container]}
-        scroll
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 80, paddingTop: 40 }}
-        refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
     >
+            {/* Fixed background floating shapes */}
             <FloatingShape initialX={width * 0.1} initialY={height * 0.1} delay={0} depth={2} sensor={sensor} initialRotation={45} direction={1} duration={25000} opacity={0.5} sensorMultiplier={1}>
                  <X size={100} color={colors.accent} />
             </FloatingShape>
@@ -145,7 +160,7 @@ export default function HomeScreen() {
 
             <FloatingShape initialX={width * 0.15} initialY={height * 0.75} delay={1000} depth={3} sensor={sensor} initialRotation={200} direction={1} duration={40000} opacity={0.5} sensorMultiplier={2}>
                    <X size={150} color={colors.accent} />
-          </FloatingShape>
+            </FloatingShape>
           
             <FloatingShape initialX={width * 0.45} initialY={height * 0.35} delay={1500} depth={2} sensor={sensor} initialRotation={200} direction={-1} duration={30000} opacity={0.5} sensorMultiplier={5}>
                    <X size={150} color={colors.accent} />
@@ -155,6 +170,16 @@ export default function HomeScreen() {
                    <Circle size={120} color={colors.secondary} />
             </FloatingShape>
 
+            {/* Scrollable content */}
+            <ThemedView
+                style={[styles.container]}
+                scroll
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: 80, paddingTop: 40 }}
+                refreshControl={
+                    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+                }
+            >
             <Animated.View exiting={FadeOut} style={styles.mainContent}>
                 <Animated.View entering={FadeInDown.delay(100)} style={styles.logoSection}>
                     <View style={styles.logoContainer}>
@@ -189,7 +214,13 @@ export default function HomeScreen() {
                 <Animated.View entering={FadeInDown.delay(300).springify()}>
                     <Button 
                         variant="secondary"
-                        onPress={() => router.push('/play-friend' as any)}
+                        onPress={() => {
+                            if (!user) {
+                                showAuthModal('login');
+                                return;
+                            }
+                            router.push('/play-friend' as any);
+                        }}
                         style={[styles.menuButton, { backgroundColor: colors.card, borderColor: colors.border }]}
                     >
                         <View style={styles.buttonContent}>
@@ -232,7 +263,7 @@ export default function HomeScreen() {
                                             backgroundColor: colors.border
                                         }}>
                                             {player.avatar_url ? (
-                                                <Image source={{ uri: player.avatar_url }} style={{ width: '100%', height: '100%', borderRadius: 12 }} />
+                                                <Image source={{ uri: player.avatar_url }} style={{ width: '100%', height: '100%', borderRadius: 12 }} contentFit="cover" transition={200} />
                                             ) : (
                                                 <View style={{ width: '100%', height: '100%', borderRadius: 12, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' }}>
                                                     <ThemedText size="xs" colorType="white" weight="bold">{player.username?.[0]?.toUpperCase()}</ThemedText>
@@ -257,20 +288,26 @@ export default function HomeScreen() {
                                 <Animated.View entering={FadeInDown.delay(index * 100).springify()} key={player.id}>
                                     <TouchableOpacity 
                                         activeOpacity={0.9} 
-                                        onPress={() => setSelectedProfile(player)}
+                                        onPress={() => showProfileModal({
+                                            profile: player,
+                                            rank: index + 1,
+                                            isMe: player.id === user?.id
+                                        })}
                                         style={[styles.playerItem, { backgroundColor: colors.card }]}
                                     >
                                         <View style={styles.playerInfo}>
                                             <View style={styles.rankBadge}>
                                                 <ThemedText weight="bold" size="sm" colorType="subtext">#{index + 1}</ThemedText>
                                             </View>
-                                            {player.avatar_url ? (
-                                                <Image source={{ uri: player.avatar_url }} style={styles.playerAvatar} />
-                                            ) : (
-                                                <View style={[styles.playerAvatar, { backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' }]}>
-                                                    <ThemedText colorType="white" weight="bold">{player.username?.[0]?.toUpperCase()}</ThemedText>
-                                                </View>
-                                            )}
+                                            <TouchableOpacity onPress={() => player.avatar_url && showAvatarViewer(player.avatar_url)} disabled={!player.avatar_url}>
+                                              {player.avatar_url ? (
+                                                  <Image source={{ uri: player.avatar_url }} style={styles.playerAvatar} contentFit="cover" transition={200} />
+                                              ) : (
+                                                  <View style={[styles.playerAvatar, { backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' }]}>
+                                                      <ThemedText colorType="white" weight="bold">{player.username?.[0]?.toUpperCase()}</ThemedText>
+                                                  </View>
+                                              )}
+                                            </TouchableOpacity>
                                             <View style={styles.playerNameWrapper}>
                                                 <ThemedText weight="bold" numberOfLines={1}>{player.username}</ThemedText>
                                                 <View style={styles.miniStatsRow}>
@@ -290,54 +327,16 @@ export default function HomeScreen() {
                 )}
                 
                 <Animated.View entering={FadeInDown.delay(600).springify()} style={styles.rulesButtonContainer}>
-                    <Button variant="ghost" onPress={() => setShowRules(true)}> 
+                    <Button variant="ghost" onPress={showIntroductionModal}> 
                         <Info size={16} color={colors.text} />
-                        <ThemedText style={[styles.rulesButtonText, { color: colors.text }]}>How to Play</ThemedText>
+                        <ThemedText style={[styles.rulesButtonText, { color: colors.text }]}>Introduction & Rules</ThemedText>
                     </Button>
                 </Animated.View>
                 </View>
             </Animated.View>
 
-            <BottomSheet visible={showRules} onClose={() => setShowRules(false)}>
-                <SheetHeader title="Game Rules" onClose={() => setShowRules(false)} />
-                
-                <ThemedView scroll style={styles.sheetContent} showsVerticalScrollIndicator={false}>
-                    <RuleCard 
-                        icon={<Trophy size={24} color="#eab308" />} 
-                        title="WIN" 
-                        desc="Get 3 marks in a row (horizontal, vertical, or diagonal). Player wins." 
-                        visual={<MiniBoard board={["O", "O", 'X', null, 'X', null, 'X', null, null]} winLine={[2, 4, 6]} />}
-                    />
-                    <RuleCard 
-                        icon={<ThumbsDown size={24} color={colors.error} />} 
-                        title="DEFEAT" 
-                        desc="Opponent gets 3 in a row. Player loses the round." 
-                        visual={<MiniBoard board={['O', null, "X", 'O', "X", "O", 'O', null, "X"]} winLine={[0, 3, 6]} />}
-                    />
-                    <RuleCard 
-                        icon={<Handshake size={24} color="#60a5fa" />} 
-                        title="DRAW" 
-                        desc="Board is full with no winner. The game ends in a draw." 
-                        visual={<MiniBoard board={['X', 'O', 'X', 'X', 'O', 'O', 'O', 'X', 'X']} />}
-                    />
-                </ThemedView>
-            </BottomSheet>
-
-            <ProfileModal 
-                visible={!!selectedProfile}
-                profile={selectedProfile}
-                onClose={() => setSelectedProfile(null)}
-                rank={topPlayers.findIndex(p => p.id === selectedProfile?.id) + 1}
-                isMe={selectedProfile?.id === user?.id}
-                onAvatarPress={(url) => setViewAvatar(url)}
-            />
-
-            <AvatarViewer 
-                visible={!!viewAvatar}
-                url={viewAvatar}
-                onClose={() => setViewAvatar(null)}
-            />
-     </ThemedView>
+      </ThemedView>
+    </ThemedView>
   );
 }
 

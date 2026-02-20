@@ -110,17 +110,13 @@ export default function GameRoute() {
       return () => clearTimeout(timer);
   }, []);
 
-  // ─── Auth Guard ───
+  // ─── Auth Guard (online only) ───
   useEffect(() => {
-    if (!authLoading && !user) {
-        // Redirect to login if trying to access online game without auth
-        // Assuming there is a login route or we show a modal. 
-        // For now, let's just show a toast and go home, or rely on the UI showing "Please Login".
-        // But since we want to fix specific connection issues, let's ensure we don't try to join.
-          showToast({ title: 'Authentication Required', message: 'Please log in to play online.', type: 'error' });
-          router.replace('/(auth)/login'); // Adjust route as needed, or just home
+    if (!authLoading && !user && mode === 'online') {
+        showToast({ title: 'Authentication Required', message: 'Please log in to play online.', type: 'error' });
+        router.replace('/');
     }
-  }, [authLoading, user, router, showToast]);
+  }, [authLoading, user, mode, router, showToast]);
 
   // ─── Helper to fetch single profile ───
   const fetchProfile = useCallback(async (userId: string) => {
@@ -286,14 +282,22 @@ export default function GameRoute() {
   // ─── Online: Join & Profiles ───
   useEffect(() => {
     if (mode !== 'online' || !onlineGameId || !user) {
-        // If Solo/Local, fetch my profile for P1
-        if (mode === 'solo' && user) {
-             fetchProfile(user.id).then(p => setPlayerXProfile(p));
+        // If Solo/Local, fetch my profile for P1 (or use Guest)
+        if (mode === 'solo') {
+             if (user) {
+                 fetchProfile(user.id).then(p => setPlayerXProfile(p));
+             } else {
+                 setPlayerXProfile({ username: 'Guest', id: 'guest', avatar_url: null });
+             }
              // P2 is Bot
              setPlayerOProfile({ username: 'Bot (AI)', id: 'bot', avatar_url: null });
-        } else if (mode === 'local' && user) {
-             fetchProfile(user.id).then(p => setPlayerXProfile(p));
-             setPlayerOProfile({ username: 'Player O', id: 'guest', avatar_url: null });
+        } else if (mode === 'local') {
+             if (user) {
+                 fetchProfile(user.id).then(p => setPlayerXProfile(p));
+             } else {
+                 setPlayerXProfile({ username: 'Guest', id: 'guest', avatar_url: null });
+             }
+             setPlayerOProfile({ username: 'Player O', id: 'guest_o', avatar_url: null });
         }
         return;
     }
@@ -965,9 +969,7 @@ export default function GameRoute() {
       />
 
       <BottomSheet visible={showRules} onClose={() => setShowRules(false)}>
-        <View style={{ padding: 24, paddingBottom: 0 }}>
-             <SheetHeader title="Game Rules" onClose={() => setShowRules(false)} />
-        </View>
+        <SheetHeader title="Game Rules" onClose={() => setShowRules(false)} />
         <ThemedView scroll style={styles.sheetContent} showsVerticalScrollIndicator={false}>
           <RuleCard
             icon={<Trophy size={24} color="#eab308" />}

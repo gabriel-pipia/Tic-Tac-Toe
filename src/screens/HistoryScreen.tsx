@@ -1,6 +1,7 @@
 import BottomSheet from '@/components/ui/BottomSheet';
 import Button from '@/components/ui/Button';
 import RefreshControl from '@/components/ui/RefreshControl';
+import SheetHeader from '@/components/ui/SheetHeader';
 import { ThemedText } from '@/components/ui/Text';
 import { ThemedView } from '@/components/ui/View';
 import { useAuth } from '@/context/AuthContext';
@@ -464,7 +465,13 @@ export default function GameHistoryScreen() {
                   <View style={styles.playerInfoColumn}>
                       <View style={[styles.avatarContainerLarge, { borderColor: isX ? colors.primary : colors.border }]}>
                           <View style={[styles.avatarCircle, { backgroundColor: colors.background }]}>
-                              <UserIcon size={32} color={colors.subtext} />
+                              {isX && user?.user_metadata?.avatar_url ? (
+                                  <Image source={{ uri: user.user_metadata.avatar_url }} style={styles.avatarImageLarge} contentFit="cover" transition={200} />
+                              ) : !isX && item.opponent?.avatar_url ? (
+                                  <Image source={{ uri: item.opponent.avatar_url }} style={styles.avatarImageLarge} contentFit="cover" transition={200} />
+                              ) : (
+                                  <UserIcon size={32} color={colors.subtext} />
+                              )}
                           </View>
                           <View style={[styles.markBadgeLarge, { backgroundColor: colors.primary, borderColor: colors.background }]}>
                                <X size={16} strokeWidth={4} color={colors.white} />
@@ -487,12 +494,14 @@ export default function GameHistoryScreen() {
                   <View style={styles.playerInfoColumn}>
                       <View style={[styles.avatarContainerLarge, { borderColor: !isX ? colors.secondary : colors.border }]}>
                           <View style={[styles.avatarCircle, { backgroundColor: colors.background }]}>
-                              {item.opponent?.avatar_url ? (
-                                  <Image source={{ uri: item.opponent.avatar_url }} style={styles.avatarImageLarge} />
+                              {!isX && user?.user_metadata?.avatar_url ? (
+                                  <Image source={{ uri: user.user_metadata.avatar_url }} style={styles.avatarImageLarge} contentFit="cover" transition={200} />
+                              ) : isX && item.opponent?.avatar_url ? (
+                                  <Image source={{ uri: item.opponent.avatar_url }} style={styles.avatarImageLarge} contentFit="cover" transition={200} />
                               ) : (
-                                  <View style={[styles.avatarCircle, { backgroundColor: colors.background }]}>
-                                      {item.status === 'waiting' ? <ActivityIndicator size="small" color={colors.subtext} /> : <UserIcon size={32} color={colors.subtext} />}
-                                  </View>
+                                   <View style={[styles.avatarCircle, { backgroundColor: colors.background }]}>
+                                       {item.status === 'waiting' ? <ActivityIndicator size="small" color={colors.subtext} /> : <UserIcon size={32} color={colors.subtext} />}
+                                   </View>
                               )}
                           </View>
                           <View style={[styles.markBadgeLarge, { backgroundColor: colors.secondary, borderColor: colors.background }]}>
@@ -547,25 +556,13 @@ export default function GameHistoryScreen() {
 
   // Chip component for filter options
   const FilterChip = ({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) => (
-    <TouchableOpacity
-      activeOpacity={0.7}
+    <Button
+      variant={selected ? "primary" : "secondary"}
+      size="sm"
+      title={label}
       onPress={onPress}
-      style={[
-        styles.filterChip,
-        { 
-          backgroundColor: selected ? colors.accent + '20' : colors.card,
-          borderColor: selected ? colors.accent : colors.border,
-        }
-      ]}
-    >
-      <ThemedText 
-        size="sm" 
-        weight={selected ? 'bold' : 'medium'}
-        style={{ color: selected ? colors.accent : colors.text }}
-      >
-        {label}
-      </ThemedText>
-    </TouchableOpacity>
+      icon={selected ? <Check size={20} color={colors.white} /> : ""}
+    />
   );
 
   return (
@@ -586,7 +583,7 @@ export default function GameHistoryScreen() {
                     <Button
                       variant={selectedIds.size === filteredGames.length ? "secondary" : "primary"}
                       size='sm'
-                      icon={selectedIds.size === filteredGames.length ? <X size={20} color={colors.text} /> : <CheckCheck size={20} color={colors.text} />}
+                      icon={selectedIds.size === filteredGames.length ? <X size={20} color={colors.text} /> : <CheckCheck size={20} color={colors.white} />}
                       title={selectedIds.size === filteredGames.length ? 'None' : 'All'}
                       onPress={selectAll}
                     />
@@ -611,43 +608,34 @@ export default function GameHistoryScreen() {
         {activeFilterCount > 0 && (
           <View style={styles.activeFiltersRow}>
             {dateFilter !== 'all' && (
-              <TouchableOpacity 
-                activeOpacity={0.7}
-                style={[styles.activeFilterTag, { backgroundColor: colors.accent + '15', borderColor: colors.accent + '30' }]}
+              <Button 
+                variant='outline'
+                size='sm'
                 onPress={() => setDateFilter('all')}
-              >
-                <Calendar size={12} color={colors.accent} />
-                <ThemedText size="xs" weight="bold" style={{ color: colors.accent }}>
-                  {DATE_OPTIONS.find(o => o.value === dateFilter)?.label}
-                </ThemedText>
-                <X size={12} color={colors.accent} />
-              </TouchableOpacity>
+                icon={<Calendar size={14} color={colors.accent} />}
+                title={DATE_OPTIONS.find(o => o.value === dateFilter)?.label}
+                rightIcon={<X size={14} color={colors.accent} />}
+              />
             )}
             {resultFilter !== 'all' && (
-              <TouchableOpacity 
-                activeOpacity={0.7}
-                style={[styles.activeFilterTag, { backgroundColor: colors.accent + '15', borderColor: colors.accent + '30' }]}
+              <Button
+                variant='outline'
+                size='sm'
                 onPress={() => setResultFilter('all')}
-              >
-                <Trophy size={12} color={colors.accent} />
-                <ThemedText size="xs" weight="bold" style={{ color: colors.accent }}>
-                  {RESULT_OPTIONS.find(o => o.value === resultFilter)?.label}
-                </ThemedText>
-                <X size={12} color={colors.accent} />
-              </TouchableOpacity>
+                icon={<Trophy size={14} color={colors.accent} />}
+                title={RESULT_OPTIONS.find(o => o.value === resultFilter)?.label}
+                rightIcon={<X size={14} color={colors.accent} />}
+              />
             )}
             {roleFilter !== 'all' && (
-              <TouchableOpacity 
-                activeOpacity={0.7}
-                style={[styles.activeFilterTag, { backgroundColor: colors.accent + '15', borderColor: colors.accent + '30' }]}
+              <Button 
+                variant='outline'
+                size='sm'
                 onPress={() => setRoleFilter('all')}
-              >
-                <Gamepad2 size={12} color={colors.accent} />
-                <ThemedText size="xs" weight="bold" style={{ color: colors.accent }}>
-                  {ROLE_OPTIONS.find(o => o.value === roleFilter)?.label}
-                </ThemedText>
-                <X size={12} color={colors.accent} />
-              </TouchableOpacity>
+                icon={<Gamepad2 size={14} color={colors.accent} />}
+                title={ROLE_OPTIONS.find(o => o.value === roleFilter)?.label}
+                rightIcon={<X size={14} color={colors.accent} />}
+              />
             )}
           </View>
         )}
@@ -706,18 +694,8 @@ export default function GameHistoryScreen() {
 
       {/* Filter Bottom Sheet */}
       <BottomSheet visible={showFilterSheet} onClose={() => setShowFilterSheet(false)}>
+        <SheetHeader title="Filter Games" onClose={() => setShowFilterSheet(false)} />
         <View style={styles.sheetContent}>
-          {/* Sheet Header */}
-          <View style={styles.sheetHeader}>
-            <ThemedText size="lg" weight="bold">Filter Games</ThemedText>
-            <Button 
-              title="Reset"
-              variant="secondary"
-              size="sm"
-              onPress={resetFilters}
-            />
-          </View>
-
           {/* Date Filter Section */}
           <View style={styles.filterSection}>
             <View style={styles.filterSectionHeader}>
@@ -772,14 +750,23 @@ export default function GameHistoryScreen() {
             </View>
           </View>
 
-          {/* Apply Button */}
-          <Button 
-            title="Apply Filters"
-            variant="primary"
-            size="md"
-            onPress={applyFilters}
-            style={{ marginTop: 8 }}
-          />
+          {/* Reset & Apply Buttons */}
+          <View style={{ flexDirection: 'row', gap: 12, marginTop: 8 }}>
+            <Button 
+              title="Reset"
+              variant="secondary"
+              size="md"
+              onPress={resetFilters}
+              style={{ flex: 1 }}
+            />
+            <Button 
+              title="Apply Filters"
+              variant="primary"
+              size="md"
+              onPress={applyFilters}
+              style={{ flex: 2 }}
+            />
+          </View>
         </View>
       </BottomSheet>
     </ThemedView>
@@ -994,9 +981,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  // Bottom Sheet Content
   sheetContent: {
     padding: 20,
+    paddingBottom: 0,
   },
   sheetHeader: {
     flexDirection: 'row',

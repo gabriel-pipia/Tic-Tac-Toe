@@ -14,7 +14,7 @@ import * as Clipboard from 'expo-clipboard';
 import { useNavigation, useRouter } from 'expo-router';
 import { ChevronLeft, ClipboardIcon, Copy, Hash, Info, QrCode, ScanLine, Share2, Zap } from 'lucide-react-native';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Keyboard, KeyboardAvoidingView, Platform, ScrollView, Share, StyleSheet, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Keyboard, Share, StyleSheet, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 
 export default function PlayWithFriendScreen() {
@@ -272,8 +272,13 @@ export default function PlayWithFriendScreen() {
         if (!game) throw new Error('Game not found');
         if (game.status !== 'waiting') throw new Error('Game is not available to join');
         if (game.player_x === user.id) {
-            isJoiningRef.current = true;
-            router.replace(`/game/${id}`);
+            showToast({ 
+                type: 'error', 
+                title: 'Same Account', 
+                message: 'You cannot join your own game. Please use a different account.' 
+            });
+            setScanned(false);
+            setLoading(false);
             return;
         }
 
@@ -322,21 +327,16 @@ export default function PlayWithFriendScreen() {
     <ThemedView safe themed style={styles.container}>
       <ThemedView style={styles.responsiveContainer}>
         {/* Header */}
-        <View style={styles.header}>
+        <ThemedView style={styles.header}>
             <Button variant="secondary" type='icon' size='sm' icon={<ChevronLeft size={20} color={colors.text} />} onPress={handleBack} />
             <ThemedText size="xl" weight="bold">Play with Friend</ThemedText>
             <Button variant="secondary" type='icon' size='sm' icon={<Info size={20} color={colors.text} />} onPress={() => setShowTips(true)} />
-        </View>
+        </ThemedView>
 
-        <KeyboardAvoidingView 
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        <ThemedView 
             style={{ flex: 1 }}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 50}
-        >
-        <ScrollView 
-            contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled" 
-            showsVerticalScrollIndicator={false}
+            keyboardAvoiding
+            scroll
         >
         {activeTab === 'host' ? (
             <View style={styles.tabContent}>
@@ -438,8 +438,6 @@ export default function PlayWithFriendScreen() {
             </View>
         )}
         <View style={{ height: 100 }} /> 
-        </ScrollView>
-
         {/* Floating Bottom Tabs */}
         {!keyboardVisible && (
         <View style={styles.floatingTabsContainer}>
@@ -459,7 +457,7 @@ export default function PlayWithFriendScreen() {
             </View>
         </View>
         )}
-        </KeyboardAvoidingView>
+        </ThemedView>
       </ThemedView>
 
       <BottomSheet visible={showTips} onClose={() => setShowTips(false)}>

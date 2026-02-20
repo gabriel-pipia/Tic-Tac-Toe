@@ -1,6 +1,6 @@
-import AvatarViewer from '@/components/AvatarViewer';
 import BottomSheet from '@/components/ui/BottomSheet';
 import Button from '@/components/ui/Button';
+import FloatingShape from '@/components/ui/FloatingShape';
 import Input from '@/components/ui/Input';
 import RefreshControl from '@/components/ui/RefreshControl';
 import SheetHeader from '@/components/ui/SheetHeader';
@@ -11,6 +11,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { useUI } from '@/context/UIContext';
 import { Layout } from '@/lib/constants/Layout';
 import { supabase } from '@/lib/supabase/client';
+import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
@@ -18,7 +19,9 @@ import {
   Calendar,
   Camera,
   ChevronRight,
+  Circle,
   Clock,
+  LogIn,
   LogOutIcon,
   Moon,
   Pencil,
@@ -28,25 +31,29 @@ import {
   Trophy,
   User,
   UserCircle,
-  UserX
+  UserPlus,
+  UserX,
+  X
 } from 'lucide-react-native';
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Image,
   ScrollView,
   StyleSheet,
   Switch,
   TouchableOpacity,
   View
 } from 'react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
+import Animated, { FadeInDown, SensorType, useAnimatedSensor } from 'react-native-reanimated';
 
 export default function ProfileScreen() {
-  const { user } = useAuth();
+  const { user, loading: authLoading, deleteAccount } = useAuth();
   const { isDark, setTheme, colors } = useTheme();
-  const { showToast, showModal, hideModal } = useUI();
+  const { showToast, showModal, hideModal, showAuthModal, showAvatarViewer } = useUI();
   const router = useRouter();
+  const sensor = useAnimatedSensor(SensorType.GRAVITY, { interval: 20 });
+  const { width, height } = Layout.window;
   const [stats, setStats] = useState({ wins: 0, losses: 0, draws: 0, created_at: null as string | null });
   const [combinations, setCombinations] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
@@ -58,9 +65,9 @@ export default function ProfileScreen() {
   const [isPublic, setIsPublic] = useState(user?.user_metadata?.is_public ?? true);
   const [saving, setSaving] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const [showAvatar, setShowAvatar] = useState(false);
 
   const [refreshing, setRefreshing] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const isMounted = useRef(true);
 
   const totalGames = stats.wins + stats.losses + stats.draws;
@@ -71,35 +78,80 @@ export default function ProfileScreen() {
       return () => { isMounted.current = false; };
   }, []);
 
+  // Sync state when user changes (e.g. login/signup)
+  useEffect(() => {
+    if (user) {
+      setUsername(user.user_metadata?.username || user.user_metadata?.full_name || user.email?.split('@')[0] || '');
+      setAvatarUrl(user.user_metadata?.avatar_url || null);
+      setIsPublic(user.user_metadata?.is_public ?? true);
+    } else {
+      // Reset state for guest
+      setUsername('');
+      setAvatarUrl(null);
+      setIsPublic(true);
+      setStats({ wins: 0, losses: 0, draws: 0, created_at: null });
+      setCombinations({});
+    }
+  }, [user]);
+
+    const updateLocalState = useCallback((profileData: any) => {
+      setStats({
+        wins: profileData.wins || 0,
+        losses: profileData.losses || 0,
+        draws: profileData.draws || 0,
+        created_at: profileData.created_at
+      });
+      setCombinations(profileData.game_combinations || {});
+      
+      const displayName = profileData.username || user?.user_metadata?.username || user?.user_metadata?.full_name || '';
+      setUsername(displayName);
+      
+      const currentAvatar = profileData.avatar_url || user?.user_metadata?.avatar_url || null;
+      setAvatarUrl(currentAvatar);
+
+      if (profileData.is_public !== undefined && profileData.is_public !== null) {
+          setIsPublic(profileData.is_public);
+      } else if (user?.user_metadata?.is_public !== undefined) {
+          setIsPublic(user.user_metadata.is_public);
+      }
+    }, [user]);
+
   const fetchStats = useCallback(async () => {
-      if (!user) return;
+      if (!user || isDeleting) {
+        setLoading(false);
+        return;
+      }
       try {
         if (!refreshing && loading) setLoading(true);
         const { data, error } = await supabase
           .from('profiles')
-          .select('wins, losses, draws, is_public, game_combinations, created_at')
+          .select('username, avatar_url, wins, losses, draws, is_public, game_combinations, created_at')
           .eq('id', user.id)
           .single();
 
-        if (error) throw error;
-
-        if (isMounted.current && data) {
-          setStats({
-            wins: data.wins || 0,
-            losses: data.losses || 0,
-            draws: data.draws || 0,
-            created_at: data.created_at
-          });
-          setCombinations(data.game_combinations || {});
-          
-          if (user.user_metadata?.full_name) setUsername(user.user_metadata.full_name);
-          if (user.user_metadata?.avatar_url) setAvatarUrl(user.user_metadata.avatar_url);
-          // Prefer database value for is_public, fallback to metadata or default true
-          if (data.is_public !== undefined && data.is_public !== null) {
-              setIsPublic(data.is_public);
-          } else if (user.user_metadata?.is_public !== undefined) {
-              setIsPublic(user.user_metadata.is_public);
-          }
+        if (error || !data) {
+           console.log("Repairing missing profile...");
+           const initialUsername = user.user_metadata?.username || user.user_metadata?.full_name || user.email?.split('@')[0] || 'Player';
+           const initialAvatar = user.user_metadata?.avatar_url || null;
+           
+           const { data: newData, error: createError } = await supabase.from('profiles').upsert({
+               id: user.id,
+               username: initialUsername,
+               avatar_url: initialAvatar,
+               wins: 0,
+               losses: 0,
+               draws: 0,
+               is_public: true,
+               updated_at: new Date()
+           }).select().single();
+           
+           if (createError) throw createError;
+           
+           if (isMounted.current && newData) {
+               updateLocalState(newData);
+           }
+        } else if (isMounted.current) {
+          updateLocalState(data);
         }
       } catch (error) {
         console.error(error);
@@ -109,7 +161,7 @@ export default function ProfileScreen() {
             setRefreshing(false);
         }
       }
-  }, [user, refreshing, loading]);
+  }, [user, refreshing, loading, updateLocalState, isDeleting]);
 
   useEffect(() => {
     fetchStats();
@@ -120,9 +172,28 @@ export default function ProfileScreen() {
     fetchStats();
   };
 
+  if (authLoading && !user) {
+    return (
+      <ThemedView safe themed style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator size="large" color={colors.accent} />
+      </ThemedView>
+    );
+  }
+
   const handleSignOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) console.error(error);
+    try {
+      // Clear state immediately for better UX
+      setUsername('');
+      setAvatarUrl(null);
+      setStats({ wins: 0, losses: 0, draws: 0, created_at: null });
+      setCombinations({});
+      setIsPublic(true);
+      
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+    } catch (error) {
+      console.error('Sign out error:', error);
+    }
   };
 
   const handleSaveProfile = async () => {
@@ -194,9 +265,18 @@ export default function ProfileScreen() {
             hideModal();
             try {
               setLoading(true);
-              await supabase.auth.signOut();
-              showToast({ type: 'info', title: 'Account Deleted', message: 'Your account has been scheduled for deletion.' });
+              setIsDeleting(true);
+
+              const { error } = await deleteAccount();
+              if (error) throw error;
+              
+              showToast({ 
+                type: 'success', 
+                title: 'Account Deleted', 
+                message: 'Your account and all associated data have been permanently removed.' 
+              });
             } catch (error: any) {
+              setIsDeleting(false);
               showToast({ type: 'error', title: 'Deletion Failed', message: error.message });
             } finally {
               setLoading(false);
@@ -315,11 +395,11 @@ export default function ProfileScreen() {
       style={[localStyles.settingRow as any, isDestructive && { borderBottomWidth: 0 }, { borderBottomColor: colors.separator }, isLast && { borderBottomWidth: 0 }]}
     >
       <View style={localStyles.settingRowLeft}>
-        <View style={[localStyles.settingIconContainer as any, { backgroundColor: colors.iconBg }, isDestructive && { backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}>
+        <View style={[localStyles.settingIconContainer as any, { backgroundColor: colors.iconBg }, isDestructive && { backgroundColor: `${colors.error}20` }]}>
           {icon}
         </View>
         <View style={{ flex: 1 }}>
-          <ThemedText style={[localStyles.settingLabel as any, { color: textColor || colors.text }, isDestructive && { color: '#EF4444' }]}>{label}</ThemedText>
+          <ThemedText style={[localStyles.settingLabel as any, { color: textColor || colors.text }, isDestructive && { color: colors.error }]}>{label}</ThemedText>
           {sublabel && <ThemedText style={[localStyles.settingSublabel, { color: colors.subtext }]}>{sublabel}</ThemedText>}
         </View>
       </View>
@@ -327,17 +407,34 @@ export default function ProfileScreen() {
         <Switch 
           value={value} 
           onValueChange={action} 
-          trackColor={{ false: isDark ? '#334155' : '#E2E8F0', true: colors.accent }}
-          thumbColor="#fff"
+          trackColor={{ false: colors.border, true: colors.accent }}
+          thumbColor={colors.white}
         />
       ) : (
-        <ChevronRight size={18} color={isDestructive ? "#EF4444" : (textColor || colors.subtext)} />
+        <ChevronRight size={18} color={isDestructive ? colors.error : (textColor || colors.subtext)} />
       )}
     </TouchableOpacity>
   );
 
   return (
     <ThemedView themed safe edges={['top', 'left', 'bottom', 'right']} style={[localStyles.container]}>
+      {/* Floating Shapes */}
+      <FloatingShape initialX={width * 0.75} initialY={height * 0.08} delay={200} depth={1.5} sensor={sensor} initialRotation={30} direction={-1} duration={28000} opacity={0.4} sensorMultiplier={2}>
+        <X size={90} color={colors.accent} />
+      </FloatingShape>
+
+      <FloatingShape initialX={width * 0.05} initialY={height * 0.3} delay={800} depth={-2} sensor={sensor} initialRotation={150} direction={1} duration={36000} opacity={0.35} sensorMultiplier={3}>
+        <Circle size={80} color={colors.secondary} />
+      </FloatingShape>
+
+      <FloatingShape initialX={width * 0.6} initialY={height * 0.55} delay={400} depth={2.5} sensor={sensor} initialRotation={75} direction={1} duration={32000} opacity={0.3} sensorMultiplier={4}>
+        <X size={120} color={colors.accent} />
+      </FloatingShape>
+
+      <FloatingShape initialX={width * 0.2} initialY={height * 0.78} delay={1200} depth={-1} sensor={sensor} initialRotation={260} direction={-1} duration={38000} opacity={0.35} sensorMultiplier={2}>
+        <Circle size={100} color={colors.secondary} />
+      </FloatingShape>
+
       <ScrollView 
         showsVerticalScrollIndicator={false} 
         contentContainerStyle={localStyles.scrollContent}
@@ -349,7 +446,7 @@ export default function ProfileScreen() {
         {/* Profile Header */}
         <Animated.View entering={FadeInDown.duration(800).springify()} style={localStyles.header}>
           <View style={localStyles.avatarContainer}>
-            <TouchableOpacity activeOpacity={0.9} onPress={() => avatarUrl && setShowAvatar(true)}>
+            <TouchableOpacity activeOpacity={0.9} onPress={() => user && avatarUrl && showAvatarViewer(avatarUrl)} disabled={!user}>
             <LinearGradient
               colors={colors.primaryGradient}
               start={{ x: 0, y: 0 }}
@@ -358,15 +455,18 @@ export default function ProfileScreen() {
             >
               <View style={[localStyles.avatarInner, { backgroundColor: colors.sheetBg, borderColor: colors.background }]}>
                 {avatarUrl ? (
-                  <Image source={{ uri: avatarUrl }} style={localStyles.avatarImage} />
-                ) : (
+                  <Image source={{ uri: avatarUrl }} style={localStyles.avatarImage} contentFit="cover" transition={200} />
+                ) : user ? (
                   <ThemedText style={localStyles.avatarPlaceholderText}>
                     {username?.charAt(0).toUpperCase() || '?'}
                   </ThemedText>
+                ) : (
+                  <User size={40} color={colors.subtext} />
                 )}
               </View>
             </LinearGradient>
             </TouchableOpacity>
+            {user && (
             <TouchableOpacity 
               onPress={() => setShowEditSheet(true)}
               style={[localStyles.editAvatarButton, { borderColor: colors.background }]}
@@ -374,19 +474,41 @@ export default function ProfileScreen() {
             >
               <Pencil size={16} color="white" strokeWidth={2.5} />
             </TouchableOpacity>
+            )}
           </View>
 
-          <ThemedText style={[localStyles.usernameText, { color: colors.text }]}>{username || 'Player'}</ThemedText>
-          <ThemedText style={[localStyles.emailText, { color: colors.subtext, marginBottom: 4 }]}>{user?.email}</ThemedText>
+          <ThemedText style={[localStyles.usernameText]} colorType='text'>{user ? (username || 'Player') : 'Guest Player'}</ThemedText>
+          <ThemedText style={[localStyles.emailText]} colorType='subtext'>{user?.email || 'Not signed in'}</ThemedText>
           
-          {stats.created_at && (
+          {user && stats.created_at && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 24, opacity: 0.7 }}>
                 <Calendar size={16} color={colors.subtext} />
                 <ThemedText size="sm" colorType="subtext">Joined {new Date(stats.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}</ThemedText>
             </View>
           )}
 
-          {/* Quick Stats Bar */}
+          {!user && (
+              <ThemedView style={{ gap: 16, width: '100%', paddingVertical: 20, marginBottom: 24 }}>
+                  <Button 
+                      title="Sign In" 
+                      variant="primary" 
+                      onPress={() => showAuthModal('login')}
+                      icon={<LogIn size={18} color="white" />}
+                  />
+                  <Button 
+                      title="Create Account" 
+                      variant="secondary" 
+                      onPress={() => showAuthModal('signup')}
+                      icon={<UserPlus size={18} color="white" />}
+                  />
+                  <ThemedText align='center' size='md' colorType='subtext'>
+                      Create an account to track your stats, rank up globally, and play with friends!
+                  </ThemedText>
+              </ThemedView>
+          )}
+
+          {/* Quick Stats Bar - Only show if user */}
+          {user && (
           <View style={[localStyles.statsBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
             {loading ? (
               <ActivityIndicator color={colors.accent} style={{ paddingVertical: 16 }} />
@@ -402,9 +524,10 @@ export default function ProfileScreen() {
               </>
             )}
           </View>
+          )}
 
           {/* Win Rate Progress Bar */}
-          {!loading && (
+          {user && !loading && (
             <View style={localStyles.winRateContainer}>
               <View style={localStyles.winRateHeader}>
                 <ThemedText size="sm" weight="bold" colorType="subtext">Performance</ThemedText>
@@ -429,6 +552,7 @@ export default function ProfileScreen() {
         {/* Settings Area */}
         <View style={localStyles.settingsArea}>
         
+           {user && (
            <View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16, marginLeft: 4 }}>
                 <Trophy size={14} color={colors.accent} />
@@ -449,7 +573,9 @@ export default function ProfileScreen() {
                 )}
             </View>
           </View>
+          )}
 
+          {user && (
           <View style={{ marginTop: 32 }}>
             <ThemedText style={[localStyles.sectionTitle, { color: colors.subtext }]}>Activity</ThemedText>
             <View style={[localStyles.settingsGroup, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -468,7 +594,9 @@ export default function ProfileScreen() {
               />
             </View>
           </View>
+          )}
 
+          {user && (
           <View>
             <ThemedText style={[localStyles.sectionTitle, { color: colors.subtext }]}>Account & Privacy</ThemedText>
             <View style={[localStyles.settingsGroup, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -495,6 +623,7 @@ export default function ProfileScreen() {
               />
             </View>
           </View>
+          )}
 
           <View>
             <ThemedText style={[localStyles.sectionTitle, { color: colors.subtext }]}>App Settings</ThemedText>
@@ -505,18 +634,21 @@ export default function ProfileScreen() {
                 isSwitch
                 value={isDark}
                 action={(val: boolean) => setTheme(val ? 'dark' : 'light')}
+                isLast={!user}
               />
+              {user && (
               <SettingRow 
                 icon={<LogOutIcon size={20} color={colors.error} />} 
                 label="Sign out"
                 isDestructive
                 action={handleSignOut}
               />
+              )}
             </View>
           </View>
 
           <ThemedText style={[localStyles.versionText]} size="sm" align="center" colorType='subtext'>
-            Version: 1.0.0  •  Build with love 💖
+            Version: 1.0.0
           </ThemedText>
         </View>
       </ScrollView>
@@ -538,7 +670,7 @@ export default function ProfileScreen() {
                 {uploadingAvatar ? (
                   <ActivityIndicator color={colors.primary} />
                 ) : avatarUrl ? (
-                  <Image source={{ uri: avatarUrl }} style={localStyles.avatarImage} />
+                  <Image source={{ uri: avatarUrl }} style={localStyles.avatarImage} contentFit="cover" transition={200} />
                 ) : (
                   <Camera size={28} color={colors.subtext} />
                 )}
@@ -571,9 +703,7 @@ export default function ProfileScreen() {
         />
           </View>
         </BottomSheet>
-
-        <AvatarViewer visible={showAvatar} url={avatarUrl} onClose={() => setShowAvatar(false)} />
-      </ThemedView>
+    </ThemedView>
   );
 }
 

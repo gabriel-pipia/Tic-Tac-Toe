@@ -1,16 +1,17 @@
 import { useTheme } from '@/context/ThemeContext';
 import { Layout } from '@/lib/constants/Layout';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Dimensions, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Dimensions, Keyboard, Modal, Platform, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, {
-    Extrapolation,
-    interpolate,
-    runOnJS,
-    useAnimatedStyle,
-    useSharedValue,
-    withSpring,
-    withTiming
+  Extrapolation,
+  interpolate,
+  runOnJS,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming
 } from 'react-native-reanimated';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -20,16 +21,30 @@ type BottomSheetProps = {
   onClose: () => void;
   children: React.ReactNode;
   height?: number | string;
+  scrollable?: boolean;
+  overlay?: React.ReactNode;
 };
 
-export default function BottomSheet({ visible, onClose, children, height = 'auto' }: BottomSheetProps) {
-  const { width: windowWidth } = useWindowDimensions();
+export default function BottomSheet({ visible, onClose, children, height = 'auto', scrollable = false, overlay }: BottomSheetProps) {
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const isLargeScreen = windowWidth > Layout.MAX_CONTENT_WIDTH + 48;
   const { colors } = useTheme();
   const [isVisible, setIsVisible] = useState(false);
   const translateY = useSharedValue(SCREEN_HEIGHT);
   const context = useSharedValue({ y: 0 });
-  
+  const scrollOffset = useSharedValue(0);
+  const keyboardOffset = useSharedValue(0);
+
+  // Resolve height to absolute pixels
+  const isAutoHeight = height === 'auto';
+  const resolvedHeight = (() => {
+    if (isAutoHeight) return undefined;
+    if (typeof height === 'string' && height.endsWith('%')) {
+      return windowHeight * (parseFloat(height) / 100);
+    }
+    return height as number;
+  })();
+
   // Track previous visibility to detect changes
   const prevVisible = useRef(visible);
 
@@ -51,21 +66,19 @@ export default function BottomSheet({ visible, onClose, children, height = 'auto
   // Effect to handle visibility changes
   useEffect(() => {
     if (visible && !prevVisible.current) {
-      // Opening
       setIsVisible(true);
       translateY.value = SCREEN_HEIGHT;
+      scrollOffset.value = 0;
       requestAnimationFrame(() => {
           openSheet();
       });
     } else if (!visible && prevVisible.current) {
-      // Closing
-      // If we are already visible, animate out
       if (isVisible) {
          closeSheet();
       }
     }
     prevVisible.current = visible;
-  }, [visible, isVisible, openSheet, closeSheet, translateY]);
+  }, [visible, isVisible, openSheet, closeSheet, translateY, scrollOffset]);
 
   // Initial mount check
   useEffect(() => {
@@ -76,13 +89,52 @@ export default function BottomSheet({ visible, onClose, children, height = 'auto
           prevVisible.current = true;
       }
   }, [visible, isVisible, openSheet, translateY]);
-  
-  const gesture = Gesture.Pan()
+
+  // Keyboard handling — listen for keyboard show/hide and animate bottom offset
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvent, (e) => {
+      keyboardOffset.value = withTiming(e.endCoordinates.height, { duration: e.duration || 250 });
+    });
+
+    const hideSub = Keyboard.addListener(hideEvent, (e) => {
+      keyboardOffset.value = withTiming(0, { duration: (e && e.duration) || 250 });
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [keyboardOffset]);
+
+  // Track scroll position for scrollable mode
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      scrollOffset.value = event.contentOffset.y;
+    },
+  });
+
+  // Native gesture for the ScrollView — allows simultaneous handling
+  const nativeScrollGesture = Gesture.Native();
+
+  const panGesture = Gesture.Pan()
     .onStart(() => {
       context.value = { y: translateY.value };
     })
     .onUpdate((event) => {
-      translateY.value = Math.max(event.translationY + context.value.y, 0);
+      // In scrollable mode: only drag sheet when scroll is at the top AND dragging down
+      // In non-scrollable mode: always allow dragging down
+      const canDrag = scrollable
+        ? (scrollOffset.value <= 0 && event.translationY > 0) || translateY.value > 0
+        : event.translationY > 0 || translateY.value > 0;
+
+      if (canDrag) {
+        translateY.value = Math.max(event.translationY + context.value.y, 0);
+      }
     })
     .onEnd(() => {
       if (translateY.value > SCREEN_HEIGHT / 5) {
@@ -91,6 +143,15 @@ export default function BottomSheet({ visible, onClose, children, height = 'auto
         openSheet();
       }
     });
+
+  // In scrollable mode, make pan and scroll work together
+  if (scrollable) {
+    panGesture.simultaneousWithExternalGesture(nativeScrollGesture);
+  } else {
+    // Non-scrollable: simple offset-based activation
+    panGesture.activeOffsetY(10);
+    panGesture.failOffsetY(-10);
+  }
 
   const rBottomSheetStyle = useAnimatedStyle(() => {
     return {
@@ -110,102 +171,150 @@ export default function BottomSheet({ visible, onClose, children, height = 'auto
       };
   });
 
+  const rKeyboardStyle = useAnimatedStyle(() => {
+    return {
+      marginBottom: keyboardOffset.value,
+    };
+  });
+
   if (!isVisible) return null;
+
+  // Build the sheet size style
+  const sheetSizeStyle = resolvedHeight
+    ? { height: resolvedHeight }
+    : { maxHeight: windowHeight * 0.9 };
+
+  const contentView = scrollable ? (
+    <GestureDetector gesture={nativeScrollGesture}>
+      <Animated.ScrollView
+        bounces={false}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        onScroll={scrollHandler}
+        scrollEventThrottle={16}
+        style={[
+          styles.contentContainer,
+          resolvedHeight ? { flex: 1 } : null,
+        ]}
+      >
+        {children}
+      </Animated.ScrollView>
+    </GestureDetector>
+  ) : (
+    <View 
+      style={[
+        styles.contentContainer,
+        resolvedHeight ? { flex: 1 } : null,
+      ]} 
+      onStartShouldSetResponder={() => true}
+    >
+      {children}
+    </View>
+  );
 
   return (
     <Modal transparent visible={isVisible} onRequestClose={() => closeSheet()} animationType="none" statusBarTranslucent>
         <GestureHandlerRootView style={{ flex: 1 }}>
-            <KeyboardAvoidingView 
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                style={{ flex: 1 }}
-            >
-                <View 
-                    style={{ 
-                        flex: 1, 
-                        justifyContent: isLargeScreen ? 'center' : 'flex-end',
-                        alignItems: 'center'
-                    }} 
-                    pointerEvents="box-none"
-                > 
-            <Pressable
-              style={[
-                {
-                  position: 'absolute',
-                  inset: 0,
-                }]}
-              onPress={() => closeSheet()}>
+                <View style={styles.fullScreen} pointerEvents="box-none">
+                    {/* Backdrop */}
+                    <Pressable
+                      style={styles.backdrop}
+                      onPress={() => closeSheet()}
+                    >
                         <Animated.View 
                             style={[
-                                {
-                                    position: 'absolute',
-                                    inset: 0,
-                                    backgroundColor: 'rgba(0,0,0,0.6)',
-                                },
+                                styles.backdrop,
+                                { backgroundColor: 'rgba(0,0,0,0.6)' },
                                 rBackdropStyle
                             ]} 
                         />
                     </Pressable>
                     
-                  <GestureDetector gesture={gesture}>
-                      <Animated.View 
-                          style={[
-                              styles.bottomSheet,
-                              styles.shadow,
-                              rBottomSheetStyle,
-                              { 
-                                  backgroundColor: colors.background,
-                                  width: isLargeScreen ? Layout.MAX_CONTENT_WIDTH : '100%',
-                                  borderRadius: isLargeScreen ? 32 : 0,
-                                  borderTopLeftRadius: 32,
-                                  borderTopRightRadius: 32,
-                                  paddingBottom: isLargeScreen ? 12 : 32,
-                              },
-                              height !== 'auto' ? { height: height as any } : { maxHeight: '90%' }
-                          ]}
-                      >
-                          {/* Handle / Header */}
-                          <View style={styles.handleContainer}>
-                              
-                              {!isLargeScreen && (
-                                  <View 
-                                      style={[styles.handle, { backgroundColor: colors.separator }]}
-                                  />
-                              )}
-                              
-                          </View>
+                    {/* Sheet sizing wrapper */}
+                    <Animated.View 
+                      style={[
+                        isLargeScreen 
+                          ? styles.sheetWrapperDesktop 
+                          : styles.sheetWrapperMobile,
+                        sheetSizeStyle,
+                        rKeyboardStyle,
+                      ]}
+                      pointerEvents="box-none"
+                    >
+                      <GestureDetector gesture={panGesture}>
+                          <Animated.View 
+                              style={[
+                                  styles.bottomSheet,
+                                  rBottomSheetStyle,
+                                  { 
+                                      backgroundColor: colors.background,
+                                      width: isLargeScreen ? Layout.MAX_CONTENT_WIDTH : '100%',
+                                      borderRadius: isLargeScreen ? 32 : 0,
+                                      borderTopLeftRadius: 32,
+                                      borderTopRightRadius: 32,
+                                      paddingBottom: isLargeScreen ? 12 : 32,
+                                      alignSelf: 'center',
+                                  },
+                                  resolvedHeight ? { flex: 1 } : null,
+                              ]}
+                          >
+                              {/* Handle */}
+                              <View style={styles.handleContainer}>
+                                  {!isLargeScreen && (
+                                      <View 
+                                          style={[styles.handle, { backgroundColor: colors.separator }]}
+                                      />
+                                  )}
+                              </View>
 
-                          <View style={styles.contentContainer} onStartShouldSetResponder={() => true}>
-                              {children}
-                          </View>
-                      </Animated.View>
-                  </GestureDetector>
+                              {/* Content */}
+                              {contentView}
+                          </Animated.View>
+                      </GestureDetector>
+                    </Animated.View>
                 </View>
-            </KeyboardAvoidingView>
+            {/* Overlay (e.g. toasts) — rendered inside the Modal so it appears above the sheet */}
+            {overlay}
         </GestureHandlerRootView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+    fullScreen: {
+        flex: 1,
+    },
+    backdrop: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+    },
+    sheetWrapperMobile: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+    },
+    sheetWrapperDesktop: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
     bottomSheet: {
         overflow: 'hidden',
-    },
-    shadow: {
-        shadowColor: "#000",
-        shadowOffset: {
-            width: 0,
-            height: 10,
-        },
-        shadowOpacity: 0.3,
-        shadowRadius: 20,
-        elevation: 10,
     },
     handleContainer: {
         width: '100%',
         alignItems: 'center',
         justifyContent: 'center',
-        paddingTop: 16,
-        paddingBottom: 0,
+        paddingTop: 12,
+        paddingBottom: 8,
     },
     handle: {
         width: 40,

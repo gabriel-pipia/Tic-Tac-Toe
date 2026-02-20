@@ -1,35 +1,66 @@
+import AuthModal from '@/components/AuthModal';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import { ThemedText } from '@/components/ui/Text';
+import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
+import { useUI } from '@/context/UIContext';
+import { supabase } from '@/lib/supabase/client';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Clipboard from 'expo-clipboard';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { setStatusBarHidden } from 'expo-status-bar';
-import { ClipboardIcon, Hash, ScanLine } from 'lucide-react-native';
+import { ClipboardIcon, Hash, LogIn, ScanLine } from 'lucide-react-native';
 import React, { useCallback, useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
 import { ThemedView } from '@/components/ui/View';
 import { Layout } from '@/lib/constants/Layout';
 
 export default function ScanScreen() {
   const { colors, setOverrideTheme } = useTheme();
+  const { user } = useAuth();
+  const { showToast } = useUI();
   const [permission, requestPermission] = useCameraPermissions();
   const router = useRouter();
   const [scanned, setScanned] = useState(false);
   const [manualId, setManualId] = useState('');
+  const [showAuthModal, setShowAuthModal] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
+        if (!user) return; // Don't override theme if not signed in
         setOverrideTheme('dark');
         setStatusBarHidden(true, 'fade');
         return () => {
             setOverrideTheme(null);
             setStatusBarHidden(false, 'fade');
         };
-    }, [setOverrideTheme])
+    }, [setOverrideTheme, user])
   );
+
+  // Auth guard - show sign in screen if not authenticated
+  if (!user) {
+    return (
+      <ThemedView themed style={[styles.permissionContainer]}>
+        <LogIn size={48} color={colors.accent} style={{ marginBottom: 16 }} />
+        <ThemedText type="title" size="2xl" weight="bold" colorType="text" align="center" style={{ marginBottom: 8 }}>Sign In Required</ThemedText>
+        <ThemedText type="default" colorType="subtext" align="center" style={{ marginBottom: 24 }}>You need to sign in to scan QR codes and join online games.</ThemedText>
+        <Button 
+            title="Sign In" 
+            onPress={() => setShowAuthModal(true)} 
+            style={{ width: '100%', marginBottom: 12 }}
+        />
+        <Button 
+            title="Go Back" 
+            variant="secondary"
+            onPress={() => router.back()} 
+            style={{ width: '100%' }}
+        />
+        <AuthModal visible={showAuthModal} onClose={() => setShowAuthModal(false)} />
+      </ThemedView>
+    );
+  }
 
   if (!permission) {
     return (
@@ -62,9 +93,37 @@ export default function ScanScreen() {
     return gameId;
   };
 
-  const handleJoin = (id: string) => {
+  const handleJoin = async (id: string) => {
     const gameId = parseGameId(id);
-    if (!gameId) return;
+    if (!gameId || !user) return;
+
+    try {
+      // Check if this is the user's own game
+      const { data: game, error } = await supabase
+        .from('games')
+        .select('player_x')
+        .eq('id', gameId)
+        .single();
+
+      if (error || !game) {
+        setScanned(true);
+        router.replace(`/game/${gameId}`);
+        return;
+      }
+
+      if (game.player_x === user.id) {
+        showToast({ 
+          type: 'error', 
+          title: 'Same Account', 
+          message: 'You cannot join your own game. Please use a different account.' 
+        });
+        setScanned(false);
+        return;
+      }
+    } catch {
+      // If check fails, just proceed normally and let game screen handle it
+    }
+
     setScanned(true);
     router.replace(`/game/${gameId}`);
   };
@@ -95,15 +154,12 @@ export default function ScanScreen() {
             barcodeTypes: ["qr"],
         }}
       >
-        <KeyboardAvoidingView 
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={{ flex: 1 }}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 50}
-        >
-        <ScrollView 
+        <ThemedView 
           contentContainerStyle={[styles.scrollContent, { minHeight: '100%' }]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          keyboardAvoiding
+          scroll
         >
              <ThemedText style={styles.titleText}>Join Game</ThemedText>
              
@@ -143,8 +199,7 @@ export default function ScanScreen() {
                         disabled={!manualId.trim()}
                     />
              </View>
-        </ScrollView>
-        </KeyboardAvoidingView>
+        </ThemedView>
       </CameraView>
     </ThemedView>
   );

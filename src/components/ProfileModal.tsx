@@ -1,37 +1,47 @@
 import BottomSheet from '@/components/ui/BottomSheet';
+import SheetHeader from '@/components/ui/SheetHeader';
 import { ThemedText } from '@/components/ui/Text';
 import { ThemedView } from '@/components/ui/View';
 import { useTheme } from '@/context/ThemeContext';
+import { useUI } from '@/context/UIContext';
 import { supabase } from '@/lib/supabase/client';
 import { UserProfile } from '@/types/user';
 import { Image } from 'expo-image';
 import { Calendar, LockKeyhole as LockIcon, User as UserIcon } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, TouchableOpacity } from 'react-native';
-import SheetHeader from './ui/SheetHeader';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
-type ProfileModalProps = {
+interface ProfileModalProps {
   visible: boolean;
   profile: UserProfile | null;
   onClose: () => void;
   rank?: number;
   periodWins?: number;
   isMe?: boolean;
-  onAvatarPress?: (url: string) => void;
-};
+}
 
-export default function ProfileModal({ visible, profile, onClose, rank, periodWins, isMe, onAvatarPress }: ProfileModalProps) {
+export default function ProfileModal({ 
+  visible, 
+  profile, 
+  onClose, 
+  rank, 
+  periodWins,
+  isMe 
+}: ProfileModalProps) {
   const { colors } = useTheme();
+  const { showAvatarViewer } = useUI();
   const [localProfile, setLocalProfile] = useState<UserProfile | null>(profile);
 
   useEffect(() => {
     setLocalProfile(profile);
   }, [profile]);
 
+  // Handle real-time updates for public profiles
   useEffect(() => {
     if (!visible || !profile?.id) return;
 
-    const channel = supabase.channel(`profile:${profile.id}`)
+    const channel = supabase
+      .channel(`profile:${profile.id}`)
       .on(
         'postgres_changes',
         {
@@ -43,16 +53,18 @@ export default function ProfileModal({ visible, profile, onClose, rank, periodWi
         (payload: any) => {
           const newProfile = payload.new;
           if (newProfile) {
-            setLocalProfile((prev) => prev ? ({
-              ...prev,
-              wins: newProfile.wins,
-              losses: newProfile.losses,
-              draws: newProfile.draws,
-              is_public: newProfile.is_public,
-              username: newProfile.username,
-              avatar_url: newProfile.avatar_url,
-              created_at: newProfile.created_at,
-            }) : null);
+            setLocalProfile((prev) => 
+               prev ? {
+                ...prev,
+                wins: newProfile.wins,
+                losses: newProfile.losses,
+                draws: newProfile.draws,
+                is_public: newProfile.is_public,
+                username: newProfile.username,
+                avatar_url: newProfile.avatar_url,
+                created_at: newProfile.created_at
+              } : null
+            );
           }
         }
       )
@@ -70,24 +82,32 @@ export default function ProfileModal({ visible, profile, onClose, rank, periodWi
   const winRate = totalGames > 0 ? Math.round((wins / totalGames) * 100) : 0;
 
   return (
-    <BottomSheet visible={visible} onClose={onClose}>
-        <SheetHeader
-            title={localProfile.is_public === false ? "Profile" : "Profile Details"}
-            onClose={onClose}
+    <BottomSheet
+        visible={visible}
+        onClose={onClose}
+    >
+        <SheetHeader 
+            title={localProfile.is_public === false && !isMe ? "Profile" : "Profile Details"} 
+            onClose={onClose} 
         />
-        
         <ThemedView style={styles.sheetContent}>
-           {/* Common Header (Avatar + Name) */}
           <ThemedView style={styles.sheetProfileHeader}>
-              <TouchableOpacity onPress={() => localProfile.avatar_url && onAvatarPress?.(localProfile.avatar_url)} activeOpacity={0.8} disabled={!localProfile.avatar_url}>
-                  <ThemedView style={[styles.sheetAvatar, { borderColor: colors.border }]}>
+              <ThemedView style={[styles.sheetAvatar, { borderColor: colors.border }]}>
+                  <TouchableOpacity 
+                    onPress={() => localProfile.avatar_url && showAvatarViewer(localProfile.avatar_url)}
+                    disabled={!localProfile.avatar_url}
+                    style={{ width: '100%', height: '100%' }}
+                  >
                       {localProfile.avatar_url ? (
-                          <Image source={{ uri: localProfile.avatar_url }} style={styles.avatar} />
+                          <Image source={{ uri: localProfile.avatar_url }} style={styles.avatar} contentFit="cover" transition={200} />
                       ) : (
-                          <UserIcon size={40} color={colors.subtext} />
+                          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                              <UserIcon size={40} color={colors.subtext} />
+                          </View>
                       )}
-                  </ThemedView>
-              </TouchableOpacity>
+                  </TouchableOpacity>
+              </ThemedView>
+              
               <ThemedView style={{ alignItems: 'center', flexDirection: 'row', gap: 8 }}>
                       <ThemedText size="2xl" weight="bold">{localProfile.username || 'Anonymous'}</ThemedText>
                       {rank !== undefined && rank > 0 && (
@@ -95,86 +115,54 @@ export default function ProfileModal({ visible, profile, onClose, rank, periodWi
                               <ThemedText colorType='white' weight='bold'>Rank #{rank}</ThemedText>
                           </ThemedView>
                       )}
-                      {localProfile.is_public === false && isMe && (
-                        <ThemedView style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 12, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border }}>
-                           <ThemedText size="sm" colorType="subtext">Private Mode</ThemedText>
-                        </ThemedView>
-                      )}
               </ThemedView>
+
               {localProfile.created_at && (
                   <ThemedView style={{ flexDirection: 'row', alignItems: 'center', gap: 6, opacity: 0.7, marginTop: 4 }}>
                       <Calendar size={16} color={colors.subtext} />
-                      <ThemedText size="sm" colorType="subtext">Joined {new Date(localProfile.created_at).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</ThemedText>
+                      <ThemedText size="sm" colorType="subtext">
+                          Joined {new Date(localProfile.created_at).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
+                      </ThemedText>
                   </ThemedView>
               )}
           </ThemedView>
 
-          {/* Check Privacy */}
           {localProfile.is_public === false && !isMe ? (
-               <ThemedView style={{ alignItems: 'center', paddingTop: 20, width: '100%' }}>
-                   <ThemedView style={{ 
-                       width: 80, 
-                       height: 80, 
-                       borderRadius: 40, 
-                       backgroundColor: colors.card, 
-                       alignItems: 'center', 
-                       justifyContent: 'center', 
-                       marginBottom: 24,
-                       borderWidth: 1,
-                       borderColor: colors.border
-                   }}>
-                      <LockIcon size={40} color={colors.subtext} />
-                   </ThemedView>
-                   <ThemedText size="xl" weight="bold" colorType='text' style={{ marginBottom: 12 }}>Profile is Private</ThemedText>
-                   <ThemedText align='center' colorType='subtext' style={{ paddingHorizontal: 32 }}>
-                       This player has chosen to keep their detailed statistics private.
-                   </ThemedText>
-               </ThemedView>
+                <ThemedView style={{ alignItems: 'center', paddingTop: 20, width: '100%' }}>
+                    <ThemedView style={[styles.lockIconContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                       <LockIcon size={40} color={colors.subtext} />
+                    </ThemedView>
+                    <ThemedText size="xl" weight="bold" style={{ marginBottom: 12 }}>Profile is Private</ThemedText>
+                    <ThemedText align='center' colorType='subtext' style={{ paddingHorizontal: 32 }}>
+                        This player has chosen to keep their detailed statistics private.
+                    </ThemedText>
+                </ThemedView>
           ) : (
               <>
                   <ThemedView style={[styles.statsGrid, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                      <ThemedView style={styles.statBox}>
+                      <View style={styles.statBox}>
                           <ThemedText size="3xl" weight="black" colorType='success'>{wins}</ThemedText>
                           <ThemedText colorType='subtext'>Total Wins</ThemedText>
-                      </ThemedView>
-                      
-                      <ThemedView style={styles.statDivider} />
-                      <ThemedView style={styles.statBox}>
+                      </View>
+                      <View style={styles.statDivider} />
+                      <View style={styles.statBox}>
                           <ThemedText size="3xl" weight="black" colorType='error'>{localProfile.losses}</ThemedText>
                           <ThemedText colorType='subtext'>Losses</ThemedText>
-                      </ThemedView>
-                      <ThemedView style={styles.statDivider} />
-                      <ThemedView style={styles.statBox}>
+                      </View>
+                      <View style={styles.statDivider} />
+                      <View style={styles.statBox}>
                           <ThemedText size="3xl" weight="black" colorType='subtext'>{localProfile.draws}</ThemedText>
                           <ThemedText colorType='subtext'>Draws</ThemedText>
-                      </ThemedView>
+                      </View>
                   </ThemedView>
-                  
-                  {/* Period Wins */}
-                  {rank !== undefined && periodWins !== undefined && (
-                      <ThemedText colorType='accent' size='sm' style={{ marginBottom: 16 }}>
-                          Period Wins: {periodWins}
-                      </ThemedText>
-                  )}
 
                   <ThemedView style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%', marginBottom: 8 }}>
-                      <ThemedText colorType='subtext' size='sm'>
-                          Total Games: {totalGames}
-                      </ThemedText>
-                      <ThemedText colorType='subtext' size='sm'>
-                          Win Rate: {winRate}%
-                      </ThemedText>
+                      <ThemedText colorType='subtext' size='sm'>Total Games: {totalGames}</ThemedText>
+                      <ThemedText colorType='subtext' size='sm'>Win Rate: {winRate}%</ThemedText>
                   </ThemedView>
+                  
                   <ThemedView style={[styles.winRateBar, { backgroundColor: colors.border }]}>
-                      <ThemedView 
-                          style={[
-                              styles.winRateFill, 
-                              { 
-                                  width: `${winRate}%`,
-                                  backgroundColor: colors.accent 
-                              }
-                          ]} 
-                      />
+                      <ThemedView style={[styles.winRateFill, { width: `${winRate}%`, backgroundColor: colors.accent }]} />
                   </ThemedView>
               </>
           )}
@@ -189,15 +177,6 @@ const styles = StyleSheet.create({
     padding: 24,
     paddingBottom: 40,
   },
-  sheetHeader: {
-        paddingBottom: 8,
-        paddingHorizontal: 20,
-        borderBottomWidth: 1,
-        width: '100%',
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-    },
   sheetProfileHeader: {
         width: '100%',
         alignItems: 'center',
@@ -251,4 +230,13 @@ const styles = StyleSheet.create({
       height: '100%',
       borderRadius: 4,
   },
+  lockIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+    borderWidth: 1,
+  }
 });

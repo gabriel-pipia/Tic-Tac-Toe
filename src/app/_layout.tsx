@@ -1,33 +1,17 @@
 
 import SplashScreen from '@/components/ui/SplashScreen';
-import { AuthProvider, useAuth } from '@/context/AuthContext';
+import { AuthProvider } from '@/context/AuthContext';
 import { GameProvider } from '@/context/GameContext';
 import { ThemeProvider, useTheme } from '@/context/ThemeContext';
-import { UIProvider } from '@/context/UIContext';
+import { UIProvider } from '@/context/UIProvider';
 import { DarkTheme, ThemeProvider as NavThemeProvider } from '@react-navigation/native';
-import { Stack, useRouter, useSegments } from 'expo-router';
+import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useEffect } from 'react';
+import React from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 function InitialLayout() {
-  const { session, loading } = useAuth();
-  const segments = useSegments();
-  const router = useRouter();
   const { colors, isDark } = useTheme();
-
-  useEffect(() => {
-    if (loading) return;
-
-    const inAuthGroup = segments[0] === '(auth)';
-    const inOnboarding = segments[0] === 'onboarding';
-
-    if (!session && !inAuthGroup && !inOnboarding) {
-      router.replace('/onboarding');
-    } else if (session && (inAuthGroup || inOnboarding)) {
-      router.replace('/(tabs)');
-    }
-  }, [session, loading, segments, router]);
 
   const navigationTheme = {
     ...DarkTheme,
@@ -49,9 +33,7 @@ function InitialLayout() {
         }}>
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="game/[id]"/>
-            <Stack.Screen name="(auth)" />
             <Stack.Screen name="index"/>
-            <Stack.Screen name="onboarding/index"/>
         </Stack>
         <StatusBar style={isDark ? 'light' : 'dark'} />
       </GameProvider>
@@ -65,15 +47,15 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#0F172A' }}>
       <ThemeProvider>
-        <UIProvider>
-          <AuthProvider>
+        <AuthProvider>
+          <UIProvider>
             {!splashFinished ? (
                 <SplashScreen onFinish={() => setSplashFinished(true)} />
             ) : (
                 <InitialLayout />
             )}
-          </AuthProvider>
-        </UIProvider>
+          </UIProvider>
+        </AuthProvider>
       </ThemeProvider>
     </GestureHandlerRootView>
   );

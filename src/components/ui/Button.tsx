@@ -11,6 +11,7 @@ interface ButtonProps extends TouchableOpacityProps {
   size?: 'sm' | 'md' | 'lg';
   type?: 'text' | 'icon';
   icon?: React.ReactNode;
+  rightIcon?: React.ReactNode;
   style?: StyleProp<ViewStyle>;
   textStyle?: StyleProp<TextStyle>;
   children?: React.ReactNode;
@@ -24,6 +25,7 @@ export default function Button({
   type = 'text',
   size = 'md', 
   icon,
+  rightIcon,
   style,
   textStyle,
   disabled,
@@ -80,7 +82,7 @@ export default function Button({
       textColor = colors.accent;
       borderWidth = 2;
       borderColor = colors.accent;
-      borderBottomWidth = 0;
+      borderBottomWidth = 4;
       break;
     case 'ghost':
       backgroundColor = 'transparent';
@@ -112,8 +114,8 @@ export default function Button({
       {...props}
     >
       {children ? children : (
-        <ThemedView style={{ flexDirection: 'row', alignItems: 'center' }}>
-            {icon && <ThemedView style={{ marginRight: type === 'text' ? 12 : 0 }}>{icon}</ThemedView>}
+        <ThemedView style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: 'transparent' }}>
+            {icon && <ThemedView style={{ marginRight: type === 'text' ? 12 : 0, backgroundColor: 'transparent' }}>{icon}</ThemedView>}
             <ThemedText
           style={[
             { color: textColor, fontWeight: weight },
@@ -125,6 +127,7 @@ export default function Button({
       >
         {title}
       </ThemedText>
+            {rightIcon && <ThemedView style={{ marginLeft: 12, backgroundColor: 'transparent' }}>{rightIcon}</ThemedView>}
         </ThemedView>
       )}
     </TouchableOpacity>

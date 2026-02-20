@@ -1,9 +1,10 @@
 import Button from '@/components/ui/Button';
 import { useTheme } from '@/context/ThemeContext';
 import { Layout } from '@/lib/constants/Layout';
+import { Image } from 'expo-image';
 import { X } from 'lucide-react-native';
 import React from 'react';
-import { Image, Modal, StatusBar, StyleSheet, View } from 'react-native';
+import { Modal, StatusBar, StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, {
     runOnJS,
@@ -107,7 +108,7 @@ export default function AvatarViewer({ visible, url, onClose }: AvatarViewerProp
                 <View style={styles.container}>
                     {/* Blurred Background with Fade Animation */}
                     <Animated.View style={[StyleSheet.absoluteFill, bgStyle]}>
-                         <Image source={{ uri: url }} style={[StyleSheet.absoluteFill, { opacity: 0.8 }]} blurRadius={50} />
+                         <Image source={{ uri: url }} style={[StyleSheet.absoluteFill, { opacity: 0.8 }]} blurRadius={50} transition={300} />
                          <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.6)' }]} />
                     </Animated.View>
 
@@ -124,7 +125,7 @@ export default function AvatarViewer({ visible, url, onClose }: AvatarViewerProp
                             style={styles.imageWrapper}
                          >
                             <Animated.View style={[styles.innerContainer, animatedStyle]}>
-                                <Image source={{ uri: url }} style={styles.image} resizeMode="contain" />
+                                 <Image source={{ uri: url }} style={styles.image} contentFit="contain" transition={300} />
                             </Animated.View>
                         </Animated.View>
                     </GestureDetector>

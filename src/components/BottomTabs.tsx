@@ -1,6 +1,8 @@
 
 import { ThemedView } from '@/components/ui/View';
+import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
+import { useUI } from '@/context/UIContext';
 import { Layout } from '@/lib/constants/Layout';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Gamepad2, ScanLine, User, X } from 'lucide-react-native';
@@ -54,7 +56,9 @@ function AnimatedTabIcon({ IconComponent, isFocused, size, color, strokeWidth, s
 }
 
 export default function BottomTabs({ state, descriptors, navigation }: BottomTabBarProps) {
-  const {  colors } = useTheme();
+  const { colors } = useTheme();
+  const { user } = useAuth();
+  const { showToast, showAuthModal } = useUI();
 
   return (
     <ThemedView 
@@ -89,6 +93,12 @@ export default function BottomTabs({ state, descriptors, navigation }: BottomTab
                   target: route.key,
                   canPreventDefault: true,
                 });
+
+                // Auth guard for scan tab
+                if (route.name === 'scan' && !user) {
+                  showToast({ type: 'error', title: 'Sign In Required', message: 'Tap here to sign in and join games.', onPress: () => showAuthModal() });
+                  return;
+                }
 
                 if (isFocused && route.name === 'scan') {
                   navigation.navigate('index' as any);

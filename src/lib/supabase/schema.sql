@@ -136,3 +136,32 @@ create policy "Users can update their own avatar."
 create policy "Users can delete their own avatar."
   on storage.objects for delete
   using ( auth.uid() = owner and bucket_id = 'avatars' );
+
+-- 8. Function: Allow users to delete their own account (no admin needed)
+create or replace function public.delete_own_account()
+returns void as $$
+declare
+  _uid uuid;
+begin
+  -- Get current user's ID
+  _uid := auth.uid();
+  if _uid is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  -- Note: Avatar files must be deleted via Storage API (client-side)
+  -- before calling this function.
+
+  -- 1. Delete user's games (as player_x or player_o)
+  delete from public.games 
+  where player_x = _uid or player_o = _uid;
+
+  -- 2. Delete user's profile
+  delete from public.profiles 
+  where id = _uid;
+
+  -- 3. Delete the auth user record itself
+  delete from auth.users 
+  where id = _uid;
+end;
+$$ language plpgsql security definer set search_path = public;
